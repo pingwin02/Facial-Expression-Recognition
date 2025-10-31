@@ -1,1 +1,5 @@
-*.zip
+downloads/
+input/
+models/
+*.png
+__pycache__/
