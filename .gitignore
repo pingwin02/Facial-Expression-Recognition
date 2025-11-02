@@ -1,5 +1,6 @@
+__pycache__/
+.idea/
 downloads/
 input/
 models/
 *.png
-__pycache__/
