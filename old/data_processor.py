@@ -73,9 +73,7 @@ def initialize_dlib_components():
     return detector, predictor
 
 
-def detect_and_crop_face(
-        frame: np.ndarray, detector, predictor
-) -> Tuple[np.ndarray | None, np.ndarray | None]:
+def detect_and_crop_face(frame: np.ndarray, detector, predictor) -> Tuple[np.ndarray | None, np.ndarray | None]:
     """
     Detect a single face in the provided frame, crop, resize and normalize it, and compute adjusted landmarks.
 
@@ -105,9 +103,7 @@ def detect_and_crop_face(
         y2 = min(frame.shape[0], y2 + margin)
 
         cropped_face = gray[y1:y2, x1:x2]
-        resized_face = cv2.resize(
-            cropped_face, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA
-        )
+        resized_face = cv2.resize(cropped_face, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
 
         scale_x = IMG_WIDTH / (x2 - x1)
         scale_y = IMG_HEIGHT / (y2 - y1)
@@ -124,7 +120,7 @@ def detect_and_crop_face(
 
 
 def preprocess_video(
-        video_path: str, detector, predictor, time_steps: int
+    video_path: str, detector, predictor, time_steps: int
 ) -> Tuple[np.ndarray | None, List[np.ndarray]]:
     """
     Sample frames from a video, detect and preprocess faces per frame, and prepare visualization frames.
@@ -176,12 +172,8 @@ def preprocess_video(
                     cv2.circle(vis_frame_bgr, (x, y), 1, (0, 255, 0), -1)
                 visualization_frames_full.append(vis_frame_bgr)
             else:
-                processed_frames.append(
-                    np.zeros((IMG_HEIGHT, IMG_WIDTH, CHANNELS), dtype=np.float32)
-                )
-                vis_frame_fail = cv2.resize(
-                    frame, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA
-                )
+                processed_frames.append(np.zeros((IMG_HEIGHT, IMG_WIDTH, CHANNELS), dtype=np.float32))
+                vis_frame_fail = cv2.resize(frame, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
                 vis_frame_fail = vis_frame_fail.astype(np.uint8)
                 cv2.rectangle(
                     vis_frame_fail,
@@ -212,9 +204,7 @@ def preprocess_video(
         pass
 
     while len(processed_frames) < time_steps:
-        processed_frames.append(
-            np.zeros((IMG_HEIGHT, IMG_WIDTH, CHANNELS), dtype=np.float32)
-        )
+        processed_frames.append(np.zeros((IMG_HEIGHT, IMG_WIDTH, CHANNELS), dtype=np.float32))
 
         padding_vis_frame = np.full((IMG_HEIGHT, IMG_WIDTH, 3), 100, dtype=np.uint8)
 
@@ -224,12 +214,12 @@ def preprocess_video(
 
 
 def load_and_prepare_data(
-        csv_path: str,
-        video_dir: str,
-        detector,
-        predictor,
-        time_steps: int,
-        max_clips: int | None = None,
+    csv_path: str,
+    video_dir: str,
+    detector,
+    predictor,
+    time_steps: int,
+    max_clips: int | None = None,
 ) -> Tuple[np.ndarray | None, np.ndarray | None, List[Dict], List[str], int]:
     """
     Load clip metadata from CSV, optionally sample a subset, preprocess videos and prepare labels and visualization data.
@@ -277,31 +267,27 @@ def load_and_prepare_data(
     vis_count = 0
 
     for idx, (path, label) in enumerate(
-            tqdm(
-                zip(video_paths, labels),
-                total=len(video_paths),
-                desc="Processing Clips (Total)",
-            )
+        tqdm(
+            zip(video_paths, labels),
+            total=len(video_paths),
+            desc="Processing Clips (Total)",
+        )
     ):
         if max_clips is not None and len(X_list) >= max_clips:
-            tqdm.write(
-                f"[INFO] Hit max_clips limit ({max_clips}). Stopping video processing."
-            )
+            tqdm.write(f"[INFO] Hit max_clips limit ({max_clips}). Stopping video processing.")
             break
 
         if not os.path.exists(path):
             tqdm.write(f"[SKIP] Video file not found: {path}")
             continue
 
-        clip, visualization_frames_full = preprocess_video(
-            path, detector, predictor, time_steps
-        )
+        clip, visualization_frames_full = preprocess_video(path, detector, predictor, time_steps)
 
         if clip is not None and clip.shape == (
-                TIME_STEPS,
-                IMG_HEIGHT,
-                IMG_WIDTH,
-                CHANNELS,
+            TIME_STEPS,
+            IMG_HEIGHT,
+            IMG_WIDTH,
+            CHANNELS,
         ):
             X_list.append(clip)
             y_labels.append(label)
@@ -334,9 +320,7 @@ def load_and_prepare_data(
     return X, y, all_visualization_data, EMOTION_CLASSES, NUM_CLASSES
 
 
-def create_combined_strip_visualization(
-        visualization_data: List[Dict], output_path: str, frames_to_visualize: int
-):
+def create_combined_strip_visualization(visualization_data: List[Dict], output_path: str, frames_to_visualize: int):
     """
     Create and save a combined strip visualization image for multiple clips.
 
@@ -355,13 +339,9 @@ def create_combined_strip_visualization(
     total_available = len(visualization_data)
     max_to_take = NUM_CLIPS_FOR_VISUALIZATION
     if total_available > max_to_take:
-        selected_indices = np.random.choice(
-            range(total_available), max_to_take, replace=False
-        )
+        selected_indices = np.random.choice(range(total_available), max_to_take, replace=False)
         visualization_data = [visualization_data[i] for i in selected_indices]
-        print(
-            f"INFO: Randomly selected {max_to_take} clips for visualization out of {total_available} available."
-        )
+        print(f"INFO: Randomly selected {max_to_take} clips for visualization out of {total_available} available.")
     else:
         print(f"INFO: Using all {total_available} available clips for visualization.")
 
@@ -425,6 +405,4 @@ def create_combined_strip_visualization(
     print(
         f"A combined visualization image showing {len(visualization_data)} clips, each with {frames_to_show} frames, has been saved as '{output_path}'."
     )
-    print(
-        f"Visualization: {len(visualization_data)} rows x {frames_to_show} columns in '{output_path}'."
-    )
+    print(f"Visualization: {len(visualization_data)} rows x {frames_to_show} columns in '{output_path}'.")

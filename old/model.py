@@ -68,9 +68,7 @@ def build_hybrid_vfer_model(time_steps, img_height, img_width, channels, num_cla
 
     x = Flatten(name="flatten_output")(x)
     x = Dense(units=20, activation="relu", name="fully_connected_layer_20")(x)
-    output_layer = Dense(
-        units=num_classes, activation="softmax", name="softmax_output"
-    )(x)
+    output_layer = Dense(units=num_classes, activation="softmax", name="softmax_output")(x)
 
     model = Model(
         inputs=input_layer,
