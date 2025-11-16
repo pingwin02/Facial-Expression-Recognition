@@ -1,0 +1,172 @@
+import bz2
+import os
+import urllib.request
+
+import cv2
+import dlib
+import matplotlib.pyplot as plt
+import numpy as np
+
+IMG_HEIGHT = 48
+IMG_WIDTH = 48
+CHANNELS = 1
+
+_detector = None
+_predictor = None
+
+
+def get_dlib_detector_predictor():
+    """Return dlib detector and predictor, downloading predictor if necessary.
+
+    Returns:
+        tuple: (detector, predictor)
+    """
+    global _detector, _predictor
+    if _detector is None or _predictor is None:
+        DLIB_LANDMARK_MODEL_FILENAME = "shape_predictor_68_face_landmarks.dat"
+        DLIB_DOWNLOAD_DIR = "downloads"
+        DLIB_FULL_PATH = os.path.join(DLIB_DOWNLOAD_DIR, DLIB_LANDMARK_MODEL_FILENAME)
+        if not os.path.exists(DLIB_FULL_PATH):
+            print(f"Dlib weights not found: {DLIB_FULL_PATH}")
+            print("Downloading shape_predictor_68_face_landmarks.dat...")
+            url = "http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2"
+            bz2_path = DLIB_FULL_PATH + ".bz2"
+            urllib.request.urlretrieve(url, bz2_path)
+            print("Download complete. Extracting...")
+            with bz2.open(bz2_path, "rb") as f_in, open(DLIB_FULL_PATH, "wb") as f_out:
+                f_out.write(f_in.read())
+            os.remove(bz2_path)
+            print("Extraction complete.")
+        _detector = dlib.get_frontal_face_detector()
+        _predictor = dlib.shape_predictor(DLIB_FULL_PATH)
+    return _detector, _predictor
+
+
+def detect_and_crop_face(frame, detector, predictor):
+    """Detect a single face, return normalized crop, crop box and landmarks.
+
+    Args:
+        frame: BGR image as numpy array.
+        detector: dlib face detector.
+        predictor: dlib shape predictor.
+
+    Returns:
+        tuple: (normalized_face, crop_box, landmarks) or (None, None, None) if detection fails.
+    """
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray, 1)
+    if len(faces) == 1:
+        face_rect = faces[0]
+        x1, y1 = face_rect.left(), face_rect.top()
+        x2, y2 = face_rect.right(), face_rect.bottom()
+        margin = int(0.2 * (x2 - x1))
+        x1 = max(0, x1 - margin)
+        y1 = max(0, y1 - margin)
+        x2 = min(frame.shape[1], x2 + margin)
+        y2 = min(frame.shape[0], y2 + margin)
+
+        landmarks = None
+        try:
+            shape = predictor(gray, face_rect)
+            landmarks = [(shape.part(i).x, shape.part(i).y) for i in range(shape.num_parts)]
+        except Exception:
+            landmarks = None
+
+        cropped_face = gray[y1:y2, x1:x2]
+        resized_face = cv2.resize(cropped_face, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
+        normalized_face = resized_face.astype(np.float32) / 255.0
+        normalized_face = np.expand_dims(normalized_face, axis=-1)
+        crop_box = (x1, y1, x2, y2)
+        return normalized_face, crop_box, landmarks
+    return None, None, None
+
+
+def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=None, dataset_name=None):
+    """Save a grid image of sample frames with predicted and true labels.
+
+    Args:
+        frames: array-like of images (H,W,1) normalized [0,1] or raw.
+        preds: sequence of predicted labels (ints or strings).
+        labels: sequence of true labels (ints or strings).
+        debugs: list of dicts with optional keys 'class_map', 'crop_box', 'landmarks'.
+        output_dir: directory to save the output file.
+        model_name: optional model name used in the filename and title.
+        dataset_name: optional dataset name used in the title.
+    """
+    class_map = {}
+    for debug in debugs:
+        if debug and "class_map" in debug and isinstance(debug["class_map"], dict):
+            class_map.update(debug["class_map"])
+    if not class_map:
+        for lbl in list(labels) + list(preds):
+            if isinstance(lbl, str):
+                class_map[lbl] = lbl
+        if not class_map:
+            unique_vals = list(sorted(set(list(labels) + list(preds))))
+            for v in unique_vals:
+                class_map[v] = str(v)
+
+    n = len(frames)
+    if n == 0:
+        print("No frames to save.")
+        return
+    cols = 5
+    rows = (n + cols - 1) // cols
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5))
+
+    title_parts = []
+    if model_name:
+        title_parts.append(str(model_name))
+    if dataset_name:
+        title_parts.append(str(dataset_name))
+    title = " - ".join(title_parts) if title_parts else None
+    if title:
+        fig.suptitle(title, fontsize=16)
+
+    if rows == 1 and cols == 1:
+        axes = np.array([[axes]])
+    elif rows == 1:
+        axes = np.array([axes])
+    elif cols == 1:
+        axes = np.array([[a] for a in axes])
+
+    for idx, (frame, pred, label, debug) in enumerate(zip(frames, preds, labels, debugs)):
+        r, c = divmod(idx, cols)
+        ax = axes[r, c]
+        img = np.squeeze(frame)
+        if img.dtype != np.uint8:
+            img = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
+        ax.imshow(img, cmap="gray")
+
+        if debug:
+            lm = debug.get("landmarks")
+            crop = debug.get("crop_box") or debug.get("crop")
+            if lm is not None and crop is not None:
+                try:
+                    lm_arr = np.array(lm)
+                    x1, y1, x2, y2 = crop
+                    crop_w = max(1.0, float(x2 - x1))
+                    crop_h = max(1.0, float(y2 - y1))
+                    lm_scaled = np.zeros_like(lm_arr, dtype=np.float32)
+                    lm_scaled[:, 0] = (lm_arr[:, 0] - x1) * (IMG_WIDTH / crop_w)
+                    lm_scaled[:, 1] = (lm_arr[:, 1] - y1) * (IMG_HEIGHT / crop_h)
+                    ax.scatter(lm_scaled[:, 0], lm_scaled[:, 1], c="lime", s=12)
+                except Exception:
+                    pass
+
+        pred_name = class_map.get(pred, str(pred))
+        label_name = class_map.get(label, str(label))
+        ax.set_title(f"actual: {label_name}\npredicted: {pred_name}", fontsize=8)
+        ax.axis("off")
+
+    for idx in range(n, rows * cols):
+        r, c = divmod(idx, cols)
+        ax = axes[r, c]
+        ax.axis("off")
+
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
+    fname = f"{model_name}_samples.png" if model_name else "samples.png"
+    print(f"Saving sample grid PNG: {fname} with {n} frames to {output_dir}")
+    os.makedirs(output_dir, exist_ok=True)
+    plt.savefig(os.path.join(output_dir, fname))
+    plt.close(fig)
