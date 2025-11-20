@@ -3,7 +3,7 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 import sys
 import argparse
-from utils.data import load_data
+from utils.data import load_data, ensure_dataset
 from utils.model_io import load_model_class, prepare_output_directory
 
 
@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"], help="Mode")
     parser.add_argument("--epochs", type=int, default=None, help="Number of epochs (train mode only)")
     parser.add_argument(
-        "--input", type=str, default="devemo", choices=["devemo", "devemo+"], help="Input format/folder"
+        "--input", type=str, required=True, choices=["devemo", "devemo+", "fer2013"], help="Input format/folder"
     )
     args = parser.parse_args()
 
@@ -32,7 +32,10 @@ def main():
     except TypeError as e:
         raise ValueError(str(e))
 
-    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(INPUT_DIR, args.input)
+    ensure_dataset(INPUT_DIR, dataset_name=args.input)
+
+    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(INPUT_DIR, args.input,
+                                                                                        mode=args.mode)
 
     OUTPUT_DIR, MODEL_PATH = prepare_output_directory(model, args.mode, dataset=args.input)
 

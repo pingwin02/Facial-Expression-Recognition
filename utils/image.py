@@ -81,7 +81,7 @@ def detect_and_crop_face(frame, detector, predictor):
     return None, None, None
 
 
-def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=None, dataset_name=None):
+def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=None, dataset_name=None, accuracy=None):
     """Save a grid image of sample frames with predicted and true labels.
 
     Args:
@@ -92,6 +92,7 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=Non
         output_dir: directory to save the output file.
         model_name: optional model name used in the filename and title.
         dataset_name: optional dataset name used in the title.
+        accuracy: optional accuracy value to include in the title.
     """
     class_map = {}
     for debug in debugs:
@@ -119,6 +120,8 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=Non
         title_parts.append(str(model_name))
     if dataset_name:
         title_parts.append(str(dataset_name))
+    if accuracy is not None:
+        title_parts.append(f"Accuracy: {accuracy:.2f}")
     title = " - ".join(title_parts) if title_parts else None
     if title:
         fig.suptitle(title, fontsize=16)

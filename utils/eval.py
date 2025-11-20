@@ -65,9 +65,13 @@ def evaluate_model_on_data(
             debug["class_map"] = class_map
         debugs.append(debug)
 
-    print(f"Generating sample PNG for {len(frames)} samples...")
-    save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=model_name, dataset_name=dataset_name)
-    print("Sample PNG generation complete.")
-
     accuracy = np.mean(preds == labels)
     print(f"Validation accuracy: {accuracy:.4f} ({np.sum(preds == labels)}/{len(labels)})")
+
+    print(f"Generating sample PNG for {len(frames)} samples...")
+    save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=f"{model_name}_with_landmarks",
+                       dataset_name=dataset_name, accuracy=accuracy)
+    debugs_no_landmarks = [{k: v for k, v in debug.items() if k != "landmarks"} for debug in debugs]
+    save_sample_frames(frames, preds, labels, debugs_no_landmarks, output_dir, model_name=f"{model_name}_no_landmarks",
+                       dataset_name=dataset_name, accuracy=accuracy)
+    print("Sample PNG generation complete.")
