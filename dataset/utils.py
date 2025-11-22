@@ -1,6 +1,5 @@
 from collections import Counter
 
-import cv2
 import numpy as np
 
 
@@ -44,18 +43,6 @@ def join_data(data_tuples):
         debugs_merged.extend(dbg)
 
     return X_merged, y_merged, debugs_merged
-
-
-def get_safe_frame(cap, target_frame_idx):
-    """Attempts to retrieve a frame at the specific index with a fallback to the first frame."""
-    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame_idx)
-    ret, frame = cap.read()
-
-    if not ret:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ret, frame = cap.read()
-
-    return ret, frame
 
 
 def print_stats(name, y_arr, label_map):

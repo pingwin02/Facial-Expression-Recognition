@@ -33,6 +33,8 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
         print(f"Loading cached data from {cache_path}...")
         with open(cache_path, "rb") as f:
             return pickle.load(f)
+    else:
+        print(f"No cache found at {cache_path}, loading data from disk...")
 
     print(f"Loading {input_flag} dataset...")
     np.random.seed(seed)
@@ -74,11 +76,8 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
 
     result = ((X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map)
 
-    if not no_cache:
-        print(f"Saving cache to {cache_path}...")
-        with open(cache_path, "wb") as f:
-            pickle.dump(result, f)
-    else:
-        print("Cache disabled; not saving data.")
+    print(f"Saving cache to {cache_path}...")
+    with open(cache_path, "wb") as f:
+        pickle.dump(result, f)
 
     return result
