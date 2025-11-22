@@ -51,37 +51,43 @@ def detect_and_crop_face(frame, detector, predictor):
         predictor: dlib shape predictor.
 
     Returns:
-        tuple: (normalized_face, crop_box, landmarks) or (None, None, None) if detection fails.
+        tuple: (normalized_face, crop_box, landmarks) or (frame, None, None) if detection fails.
     """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = detector(gray, 1)
+
+    target_img = gray
+    crop_box = None
+    landmarks = None
+
     if len(faces) == 1:
         face_rect = faces[0]
         x1, y1 = face_rect.left(), face_rect.top()
         x2, y2 = face_rect.right(), face_rect.bottom()
+
         margin = int(0.2 * (x2 - x1))
         x1 = max(0, x1 - margin)
         y1 = max(0, y1 - margin)
         x2 = min(frame.shape[1], x2 + margin)
         y2 = min(frame.shape[0], y2 + margin)
 
-        landmarks = None
         try:
             shape = predictor(gray, face_rect)
             landmarks = [(shape.part(i).x, shape.part(i).y) for i in range(shape.num_parts)]
         except Exception:
-            landmarks = None
+            pass
 
-        cropped_face = gray[y1:y2, x1:x2]
-        resized_face = cv2.resize(cropped_face, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
-        normalized_face = resized_face.astype(np.float32) / 255.0
-        normalized_face = np.expand_dims(normalized_face, axis=-1)
+        target_img = gray[y1:y2, x1:x2]
         crop_box = (x1, y1, x2, y2)
-        return normalized_face, crop_box, landmarks
-    return None, None, None
+
+    resized = cv2.resize(target_img, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
+    normalized = resized.astype(np.float32) / 255.0
+    processed_frame = np.expand_dims(normalized, axis=-1)
+
+    return processed_frame, crop_box, landmarks
 
 
-def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=None, dataset_name=None, accuracy=None):
+def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, dataset_name, accuracy, filename):
     """Save a grid image of sample frames with predicted and true labels.
 
     Args:
@@ -90,9 +96,10 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=Non
         labels: sequence of true labels (ints or strings).
         debugs: list of dicts with optional keys 'class_map', 'crop_box', 'landmarks'.
         output_dir: directory to save the output file.
-        model_name: optional model name used in the filename and title.
-        dataset_name: optional dataset name used in the title.
-        accuracy: optional accuracy value to include in the title.
+        model_name: name of the model (str).
+        dataset_name: name of the dataset (str).
+        accuracy: optional accuracy value (float).
+        filename: output filename (str).
     """
     class_map = {}
     for debug in debugs:
@@ -121,7 +128,7 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=Non
     if dataset_name:
         title_parts.append(str(dataset_name))
     if accuracy is not None:
-        title_parts.append(f"Accuracy: {accuracy:.2f}")
+        title_parts.append(f"Accuracy: {accuracy * 100:.2f}%")
     title = " - ".join(title_parts) if title_parts else None
     if title:
         fig.suptitle(title, fontsize=16)
@@ -168,8 +175,7 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name=Non
         ax.axis("off")
 
     plt.tight_layout(rect=(0, 0, 1, 0.95))
-    fname = f"{model_name}_samples.png" if model_name else "samples.png"
-    print(f"Saving sample grid PNG: {fname} with {n} frames to {output_dir}")
+    print(f"Saving sample grid PNG to {os.path.join(output_dir, filename)}")
     os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(os.path.join(output_dir, fname))
+    plt.savefig(os.path.join(output_dir, filename))
     plt.close(fig)

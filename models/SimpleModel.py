@@ -1,7 +1,7 @@
 import os
 
 import numpy as np
-from tensorflow.keras import layers, models
+from tensorflow.keras import layers, models, callbacks, optimizers
 
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
@@ -20,12 +20,29 @@ class SimpleModel:
         """
         self.model = models.Sequential(
             [
-                layers.Conv2D(16, (3, 3), padding="same", activation="relu", input_shape=input_shape),
+                layers.Conv2D(32, (3, 3), padding="same", input_shape=input_shape),
+                layers.BatchNormalization(),
+                layers.Activation("relu"),
                 layers.MaxPooling2D((2, 2)),
-                layers.Conv2D(32, (3, 3), padding="same", activation="relu"),
+                layers.Dropout(0.25),
+
+                layers.Conv2D(64, (3, 3), padding="same"),
+                layers.BatchNormalization(),
+                layers.Activation("relu"),
                 layers.MaxPooling2D((2, 2)),
+                layers.Dropout(0.25),
+
+                layers.Conv2D(128, (3, 3), padding="same"),
+                layers.BatchNormalization(),
+                layers.Activation("relu"),
+                layers.MaxPooling2D((2, 2)),
+                layers.Dropout(0.25),
+
                 layers.Flatten(),
-                layers.Dense(128, activation="relu"),
+                layers.Dense(128),
+                layers.BatchNormalization(),
+                layers.Activation("relu"),
+                layers.Dropout(0.5),
                 layers.Dense(num_classes, activation="softmax"),
             ]
         )
@@ -40,6 +57,10 @@ class SimpleModel:
         """
         if metrics is None:
             metrics = ["accuracy"]
+
+        if optimizer == "adam":
+            optimizer = optimizers.Adam(learning_rate=0.001)
+
         self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
     @classmethod
@@ -58,7 +79,30 @@ class SimpleModel:
         num_classes = len(np.unique(y_train))
         model = cls(num_classes=num_classes)
         model.compile()
-        history = model.model.fit(X_train, y_train, validation_data=(X_val, y_val), epochs=epochs, batch_size=16)
+
+        early_stopping = callbacks.EarlyStopping(
+            monitor='val_loss',
+            patience=10,
+            restore_best_weights=True,
+            verbose=1
+        )
+
+        reduce_lr = callbacks.ReduceLROnPlateau(
+            monitor='val_loss',
+            factor=0.5,
+            patience=4,
+            min_lr=1e-6,
+            verbose=1
+        )
+
+        history = model.model.fit(
+            X_train, y_train,
+            validation_data=(X_val, y_val),
+            epochs=epochs,
+            batch_size=64,
+            callbacks=[early_stopping, reduce_lr]
+        )
+
         model_filename = f"{cls.__name__}_model.keras"
         model.model.save(os.path.join(output_dir, model_filename))
         plot_metrics(history.history, output_dir, model_name=cls.__name__)
@@ -69,26 +113,23 @@ class SimpleModel:
         return np.argmax(self.model.predict(images_np), axis=1)
 
     @classmethod
-    def eval(cls, X_val, y_val, output_dir, model_path, label_map=None, dataset_name=None):
+    def eval(cls, val, output_dir, label_map=None, dataset_name=None):
         """Load a trained model and evaluate it on validation data.
 
         Args:
-            X_val: Validation data or tuple (X_val, y_val, debugs).
-            y_val: Validation labels (if X_val is a tuple, y_val may be redundant).
+            val: Validation tuple (X_val, y_val, debugs).
             output_dir (str): Directory where outputs will be written.
-            model_path (str): Path or pattern to load the trained model.
             label_map (dict): Optional mapping from label name->int.
             dataset_name (str): Optional dataset identifier for plots.
         """
         model_prefix = cls.__name__.lower()
-        loaded_model = find_and_load_model(model_path, model_prefix=model_prefix)
+        loaded_model = find_and_load_model(model_prefix)
         if loaded_model is None:
             print("Error: Model could not be loaded for evaluation.")
             return
         evaluate_model_on_data(
             loaded_model,
-            X_val,
-            y_val,
+            val,
             output_dir,
             model_name=cls.__name__,
             label_map=label_map,

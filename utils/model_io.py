@@ -6,37 +6,63 @@ import shutil
 import tensorflow as tf
 
 
-def find_and_load_model(model_path, model_prefix="SimpleModel"):
-    """Locate and load a Keras model from disk.
+def find_and_load_model(model_prefix="SimpleModel"):
+    """
+    Locate and load a Keras model from disk based on prefix.
 
-    If `model_path` does not exist, search upward for a matching '*model.keras' file
-    whose filename contains `model_prefix`.
+    Searches recursively for *.keras files. If multiple files match the
+    folder/filename criteria, prompts the user to select one.
 
     Args:
-        model_path (str): Expected path to the saved model.
-        model_prefix (str): Substring to match model filenames when searching.
+        model_prefix (str): Substring expected in the file path (e.g., model architecture).
 
     Returns:
         A loaded Keras model instance or None if not found.
     """
-    if not os.path.exists(model_path):
-        model_dir = os.path.dirname(model_path)
-        base_dir = os.path.dirname(model_dir)
-        candidates = sorted(glob.glob(os.path.join(base_dir, "**", "*model.keras"), recursive=True), reverse=True)
-        found_model_path = None
-        for candidate in candidates:
-            if model_prefix.lower() in os.path.basename(candidate).lower():
-                found_model_path = candidate
+    print(f"Searching for models matching '{model_prefix}'...")
+
+    all_models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
+
+    candidates = []
+    for path in all_models:
+        normalized_path = path.lower()
+        if model_prefix.lower() in normalized_path in normalized_path:
+            candidates.append(path)
+
+    candidates.sort(key=os.path.getmtime, reverse=True)
+
+    if not candidates:
+        print(f"Error: No trained models found matching prefix '{model_prefix}'.")
+        return None
+
+    selected_path = candidates[0]
+
+    if len(candidates) > 1:
+        print(f"\nMultiple matching models found:")
+        for i, path in enumerate(candidates):
+            print(f"[{i}] {path}")
+
+        while True:
+            user_input = input(f"\nSelect model index to load (0-{len(candidates) - 1}) [default: 0]: ").strip()
+            if user_input == "":
+                index = 0
                 break
-        if found_model_path:
-            model_path = found_model_path
-            print(f"Loading {model_path} for evaluation...")
-        else:
-            print(f"Error: trained model not found")
-            return None
-    print("Loading trained model for evaluation...")
-    loaded_model = tf.keras.models.load_model(model_path)
-    return loaded_model
+
+            if user_input.isdigit():
+                index = int(user_input)
+                if 0 <= index < len(candidates):
+                    selected_path = candidates[index]
+                    break
+
+            print("Invalid selection. Please try again.")
+
+    print(f"Loading trained model from: {selected_path}")
+    try:
+        loaded_model = tf.keras.models.load_model(selected_path)
+        return loaded_model
+    except Exception as e:
+        print(f"Failed to load model: {e}")
+        return None
 
 
 def load_model_class(model_name):
