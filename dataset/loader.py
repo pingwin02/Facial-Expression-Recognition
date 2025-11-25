@@ -32,7 +32,12 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
     if os.path.exists(cache_path) and not no_cache:
         print(f"Loading cached data from {cache_path}...")
         with open(cache_path, "rb") as f:
-            return pickle.load(f)
+            result = pickle.load(f)
+            print(f"{input_flag} dataset loaded from cache.")
+            print_stats("train", result[0][1], result[2])
+            print_stats("val", result[1][1], result[2])
+            return result
+
     else:
         print(f"No cache found at {cache_path}, loading data from disk...")
 
@@ -71,6 +76,7 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
         X_train, y_train, train_debugs = process_video_data(train_df, video_dir, filename_col, label_map)
         X_val, y_val, val_debugs = process_video_data(val_df, video_dir, filename_col, label_map)
 
+    print(f"{input_flag} dataset loaded from disk.")
     print_stats("train", y_train, label_map)
     print_stats("val", y_val, label_map)
 
