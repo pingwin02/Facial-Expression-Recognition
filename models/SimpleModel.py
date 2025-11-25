@@ -25,19 +25,16 @@ class SimpleModel:
                 layers.Activation("relu"),
                 layers.MaxPooling2D((2, 2)),
                 layers.Dropout(0.25),
-
                 layers.Conv2D(64, (3, 3), padding="same"),
                 layers.BatchNormalization(),
                 layers.Activation("relu"),
                 layers.MaxPooling2D((2, 2)),
                 layers.Dropout(0.25),
-
                 layers.Conv2D(128, (3, 3), padding="same"),
                 layers.BatchNormalization(),
                 layers.Activation("relu"),
                 layers.MaxPooling2D((2, 2)),
                 layers.Dropout(0.25),
-
                 layers.Flatten(),
                 layers.Dense(128),
                 layers.BatchNormalization(),
@@ -64,7 +61,7 @@ class SimpleModel:
         self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
     @classmethod
-    def train(cls, X_train, y_train, X_val, y_val, output_dir, epochs):
+    def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs):
         """Train the model and save trained weights and metrics.
 
         Args:
@@ -80,31 +77,20 @@ class SimpleModel:
         model = cls(num_classes=num_classes)
         model.compile()
 
-        early_stopping = callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=10,
-            restore_best_weights=True,
-            verbose=1
-        )
+        early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True, verbose=1)
 
-        reduce_lr = callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.5,
-            patience=4,
-            min_lr=1e-6,
-            verbose=1
-        )
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6, verbose=1)
 
         history = model.model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             validation_data=(X_val, y_val),
             epochs=epochs,
             batch_size=64,
-            callbacks=[early_stopping, reduce_lr]
+            callbacks=[early_stopping, reduce_lr],
         )
 
-        model_filename = f"{cls.__name__}_model.keras"
-        model.model.save(os.path.join(output_dir, model_filename))
+        model.model.save(model_filename)
         plot_metrics(history.history, output_dir, model_name=cls.__name__)
         return history
 

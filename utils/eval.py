@@ -26,12 +26,17 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     if label_map:
         class_names = [k for k, v in sorted(label_map.items(), key=lambda item: item[1])]
 
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=class_names if class_names else "auto",
-                yticklabels=class_names if class_names else "auto")
-    plt.ylabel('True Label')
-    plt.xlabel('Predicted Label')
-    plt.title('Confusion Matrix')
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=class_names if class_names else "auto",
+        yticklabels=class_names if class_names else "auto",
+    )
+    plt.ylabel("True Label")
+    plt.xlabel("Predicted Label")
+    plt.title("Confusion Matrix")
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -42,13 +47,13 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
 
 
 def evaluate_model_on_data(
-        loaded_model,
-        val_tuple,
-        output_dir,
-        model_name="simple_sample_grid",
-        max_samples=10,
-        label_map=None,
-        dataset_name=None,
+    loaded_model,
+    val_tuple,
+    output_dir,
+    model_name="simple_sample_grid",
+    max_samples=10,
+    label_map=None,
+    dataset_name=None,
 ):
     """
     Evaluate a loaded model on the full validation set, generate a confusion matrix,
@@ -75,11 +80,7 @@ def evaluate_model_on_data(
     print(f"Validation Accuracy: {accuracy * 100:.2f}%")
 
     save_confusion_matrix(
-        y_val,
-        all_preds_labels,
-        output_dir,
-        label_map=label_map,
-        filename=f"{model_name}_confusion_matrix.png"
+        y_val, all_preds_labels, output_dir, label_map=label_map, filename=f"{model_name}_confusion_matrix.png"
     )
 
     selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False)
@@ -96,11 +97,7 @@ def evaluate_model_on_data(
     for i, idx in enumerate(selected_indices):
         debug_info = val_debugs[idx] if val_debugs is not None and idx < len(val_debugs) else None
 
-        debug = {
-            "frame_index": int(idx),
-            "predicted_label": int(preds_sample[i]),
-            "true_label": int(labels_sample[i])
-        }
+        debug = {"frame_index": int(idx), "predicted_label": int(preds_sample[i]), "true_label": int(labels_sample[i])}
 
         if debug_info and isinstance(debug_info, dict):
             debug.update({k: debug_info.get(k) for k in ["crop_box", "landmarks"] if k in debug_info})
@@ -119,7 +116,7 @@ def evaluate_model_on_data(
         model_name=model_name,
         dataset_name=dataset_name,
         accuracy=accuracy,
-        filename=f"{model_name}_samples_with_landmarks.png"
+        filename=f"{model_name}_samples_with_landmarks.png",
     )
 
     debugs_no_landmarks = [{k: v for k, v in debug.items() if k != "landmarks"} for debug in debugs_sample]
@@ -133,5 +130,5 @@ def evaluate_model_on_data(
         model_name=model_name,
         dataset_name=dataset_name,
         accuracy=accuracy,
-        filename=f"{model_name}_samples_no_landmarks.png"
+        filename=f"{model_name}_samples_no_landmarks.png",
     )

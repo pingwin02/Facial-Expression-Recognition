@@ -41,8 +41,9 @@ def main():
 
     ensure_dataset(INPUT_DIR, dataset_name=args.input)
 
-    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map \
-        = load_data(INPUT_DIR, args.input, no_cache=args.no_cache)
+    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(
+        INPUT_DIR, args.input, no_cache=args.no_cache
+    )
 
     OUTPUT_DIR, MODEL_PATH = prepare_output_directory(model, args.mode, dataset=args.input)
 
@@ -50,7 +51,7 @@ def main():
         if args.epochs is None:
             print("Error: --epochs must be specified for training.")
             sys.exit(1)
-        model.train(X_train, y_train, X_val, y_val, OUTPUT_DIR, args.epochs)
+        model.train(X_train, y_train, X_val, y_val, OUTPUT_DIR, MODEL_PATH, args.epochs)
 
     if args.mode == "eval":
         if args.epochs is not None:

@@ -21,13 +21,10 @@ class TransferModel:
         """
         inputs = layers.Input(shape=input_shape)
 
-        x = layers.Conv2D(3, (1, 1), padding='same')(inputs)
+        x = layers.Conv2D(3, (1, 1), padding="same")(inputs)
 
         base_model = applications.MobileNetV2(
-            input_shape=(input_shape[0], input_shape[1], 3),
-            include_top=False,
-            weights='imagenet',
-            alpha=1.0
+            input_shape=(input_shape[0], input_shape[1], 3), include_top=False, weights="imagenet", alpha=1.0
         )
 
         base_model.trainable = True
@@ -58,7 +55,7 @@ class TransferModel:
         self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
     @classmethod
-    def train(cls, X_train, y_train, X_val, y_val, output_dir, epochs):
+    def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs):
         """Train the model and save trained weights and metrics.
 
         Args:
@@ -74,31 +71,20 @@ class TransferModel:
         model = cls(num_classes=num_classes)
         model.compile()
 
-        early_stopping = callbacks.EarlyStopping(
-            monitor='val_loss',
-            patience=8,
-            restore_best_weights=True,
-            verbose=1
-        )
+        early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=8, restore_best_weights=True, verbose=1)
 
-        reduce_lr = callbacks.ReduceLROnPlateau(
-            monitor='val_loss',
-            factor=0.2,
-            patience=3,
-            min_lr=1e-7,
-            verbose=1
-        )
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.2, patience=3, min_lr=1e-7, verbose=1)
 
         history = model.model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             validation_data=(X_val, y_val),
             epochs=epochs,
             batch_size=32,
-            callbacks=[early_stopping, reduce_lr]
+            callbacks=[early_stopping, reduce_lr],
         )
 
-        model_filename = f"{cls.__name__}_model.keras"
-        model.model.save(os.path.join(output_dir, model_filename))
+        model.model.save(model_filename)
         plot_metrics(history.history, output_dir, model_name=cls.__name__)
         return history
 

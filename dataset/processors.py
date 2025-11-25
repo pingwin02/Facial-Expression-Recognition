@@ -18,9 +18,7 @@ def process_image_directory(directory, label_map):
     for label in tqdm(os.listdir(directory), desc="Processing labels", unit="label"):
         label_dir = os.path.join(directory, label)
         if os.path.isdir(label_dir):
-            for image_file in tqdm(
-                    os.listdir(label_dir), desc=f"Processing images for label {label}", unit="image"
-            ):
+            for image_file in tqdm(os.listdir(label_dir), desc=f"Processing images for label {label}", unit="image"):
                 image_path = os.path.join(label_dir, image_file)
                 image = cv2.imread(image_path)
 
@@ -77,12 +75,9 @@ def process_video_data(df, video_dir, filename_col, label_map, num_frames=10):
                 X.append(face)
                 y.append(label)
 
-                debugs.append({
-                    "video": row[filename_col],
-                    "landmarks": landmarks,
-                    "frame_idx": idx,
-                    "crop_box": crop_box
-                })
+                debugs.append(
+                    {"video": row[filename_col], "landmarks": landmarks, "frame_idx": idx, "crop_box": crop_box}
+                )
 
         cap.release()
 
