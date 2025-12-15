@@ -1,4 +1,5 @@
 import os
+from collections import deque
 
 import cv2
 import numpy as np
@@ -11,7 +12,6 @@ IMG_WIDTH = 48
 
 
 def process_image_directory(directory, label_map):
-    """Iterates through directory structure to load images."""
     X, y, debugs = [], [], []
     detector_pack = get_dlib_detector_predictor()
 
@@ -33,11 +33,7 @@ def process_image_directory(directory, label_map):
     return np.array(X), np.array(y), debugs
 
 
-def process_video_data(df, video_dir, filename_col, label_map, num_frames=10):
-    """
-    Iterates through video files in DataFrame to extract multiple equidistant frames per video.
-    Each extracted frame becomes a separate training sample with the same label.
-    """
+def process_video_data(df, video_dir, filename_col, label_map, max_attempts=10):
     X, y, debugs = [], [], []
     detector_pack = get_dlib_detector_predictor()
 
@@ -54,30 +50,39 @@ def process_video_data(df, video_dir, filename_col, label_map, num_frames=10):
             cap.release()
             continue
 
-        count = min(total_frames, num_frames)
-        frame_indices = np.linspace(0, total_frames - 1, count, dtype=int)
+        queue = deque([(0, total_frames)])
+        visited = set()
+        attempts = 0
 
-        for idx in frame_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ret, frame = cap.read()
+        while queue and attempts < max_attempts:
+            start, end = queue.popleft()
+            mid = (start + end) // 2
 
-            if not ret:
-                continue
+            if mid not in visited:
+                visited.add(mid)
+                attempts += 1
 
-            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, mid)
+                ret, frame = cap.read()
 
-            if face is not None:
-                face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
+                if ret:
+                    face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
 
-                if len(face.shape) == 2:
-                    face = np.expand_dims(face, axis=-1)
+                    if face is not None:
+                        face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
+                        if len(face.shape) == 2:
+                            face = np.expand_dims(face, axis=-1)
 
-                X.append(face)
-                y.append(label)
+                        X.append(face)
+                        y.append(label)
+                        debugs.append(
+                            {"video": row[filename_col], "landmarks": landmarks, "frame_idx": mid, "crop_box": crop_box}
+                        )
+                        break
 
-                debugs.append(
-                    {"video": row[filename_col], "landmarks": landmarks, "frame_idx": idx, "crop_box": crop_box}
-                )
+            if end - start > 1:
+                queue.append((start, mid))
+                queue.append((mid, end))
 
         cap.release()
 

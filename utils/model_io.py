@@ -7,18 +7,6 @@ import tensorflow as tf
 
 
 def find_and_load_model(model_prefix="SimpleModel"):
-    """
-    Locate and load a Keras model from disk based on prefix.
-
-    Searches recursively for *.keras files. If multiple files match the
-    folder/filename criteria, prompts the user to select one.
-
-    Args:
-        model_prefix (str): Substring expected in the file path (e.g., model architecture).
-
-    Returns:
-        A loaded Keras model instance or None if not found.
-    """
     print(f"Searching for models matching '{model_prefix}'...")
 
     all_models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
@@ -66,20 +54,6 @@ def find_and_load_model(model_prefix="SimpleModel"):
 
 
 def load_model_class(model_name):
-    """Resolve and return a model class by name.
-
-    The function supports either 'Module.ClassName' or just 'ClassName' where the
-    latter will be imported from the 'models' package.
-
-    Args:
-        model_name (str): Name of the model class to import.
-
-    Returns:
-        The model class object.
-
-    Raises:
-        ValueError: if the model cannot be found or is not instantiable.
-    """
     try:
         if "." in model_name:
             module_name, class_name = model_name.rsplit(".", 1)
@@ -100,16 +74,6 @@ def load_model_class(model_name):
 
 
 def prepare_output_directory(model, mode, output_root="output", dataset=None):
-    """Prepare output directory for a run and return its path and expected model path.
-
-    Args:
-        model: Instantiated model object used to name the output directory.
-        mode (str): Mode of operation (e.g. 'train' or 'eval').
-        output_root (str): Root folder in which to create subdirectories.
-
-    Returns:
-        tuple: (output_dir, model_path) where model_path is the expected filename for saving the model.
-    """
     if os.path.exists(output_root):
         for root, dirs, files in os.walk(output_root, topdown=False):
             for d in dirs:

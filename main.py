@@ -14,11 +14,6 @@ from utils.model_io import load_model_class, prepare_output_directory
 
 
 def main():
-    """Entry point for training or evaluation.
-
-    Parses CLI arguments, loads data and model, and dispatches to training or
-    evaluation routines depending on the --mode flag.
-    """
     parser = argparse.ArgumentParser(description="Facial Expression Recognition Training/Evaluation")
     parser.add_argument("--model", type=str, help="Model class name")
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"], help="Mode")
@@ -51,7 +46,7 @@ def main():
         if args.epochs is None:
             print("Error: --epochs must be specified for training.")
             sys.exit(1)
-        model.train(X_train, y_train, X_val, y_val, OUTPUT_DIR, MODEL_PATH, args.epochs)
+        model.train(X_train, y_train, X_val, y_val, OUTPUT_DIR, MODEL_PATH, args.epochs, label_map=label_map)
 
     if args.mode == "eval":
         if args.epochs is not None:

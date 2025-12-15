@@ -10,21 +10,6 @@ from dataset.utils import split_data, print_stats
 
 
 def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache", no_cache=False):
-    """
-    Load dataset from disk and return train/validation splits and label map.
-    Utilizes caching to speed up subsequent loads.
-
-    Args:
-        input_dir (str): Root directory containing dataset folders.
-        input_flag (str): Dataset type (e.g., "devemo", "fer2013").
-        seed (int): Random seed for reproducibility.
-        cache_dir (str, optional): Directory to save/load cache files.
-        no_cache (bool, optional): If True, bypass cache and reload data from disk.
-
-    Returns:
-        tuple: ((X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map)
-    """
-
     os.makedirs(cache_dir, exist_ok=True)
     cache_filename = f"{input_flag}_seed{seed}.pkl"
     cache_path = os.path.join(cache_dir, cache_filename)

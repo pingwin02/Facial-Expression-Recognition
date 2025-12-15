@@ -4,7 +4,6 @@ import numpy as np
 
 
 def split_data(df, id_col):
-    """Splits DataFrame into train and validation sets based on unique IDs."""
     unique_ids = df[id_col].unique()
     np.random.shuffle(unique_ids)
     split_idx = int(0.8 * len(unique_ids))
@@ -18,16 +17,6 @@ def split_data(df, id_col):
 
 
 def join_data(data_tuples):
-    """
-    Joins multiple data tuples (X, y, debugs) into a single dataset.
-    Handles None values gracefully and concatenates arrays/lists correctly.
-
-    Args:
-        data_tuples (list): List of tuples, e.g., [(X_train, y_train, debugs_train), ...]
-
-    Returns:
-        tuple: (X_merged, y_merged, debugs_merged)
-    """
     valid_tuples = [t for t in data_tuples if t[0] is not None]
 
     if not valid_tuples:
@@ -46,7 +35,6 @@ def join_data(data_tuples):
 
 
 def print_stats(name, y_arr, label_map):
-    """Prints distribution statistics for the dataset."""
     total = int(len(y_arr))
     print(f"\nDataset stats ({name}):")
     print(f"  Total samples: {total}")

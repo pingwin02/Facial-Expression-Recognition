@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import layers, models, callbacks, optimizers
 
 from utils.eval import evaluate_model_on_data
@@ -6,8 +7,8 @@ from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
 
 
-class SimpleModel:
-    def __init__(self, input_shape=(48, 48, 1), num_classes=7):
+class BinaryModel:
+    def __init__(self, input_shape=(48, 48, 1)):
         self.model = models.Sequential(
             [
                 layers.Conv2D(32, (3, 3), padding="same", input_shape=input_shape),
@@ -30,13 +31,13 @@ class SimpleModel:
                 layers.BatchNormalization(),
                 layers.Activation("relu"),
                 layers.Dropout(0.5),
-                layers.Dense(num_classes, activation="softmax"),
+                layers.Dense(1, activation="sigmoid"),
             ]
         )
 
-    def compile(self, optimizer="adam", loss="sparse_categorical_crossentropy", metrics=None):
+    def compile(self, optimizer="adam", loss="binary_crossentropy", metrics=None):
         if metrics is None:
-            metrics = ["accuracy"]
+            metrics = ["binary_accuracy"]
 
         if optimizer == "adam":
             optimizer = optimizers.Adam(learning_rate=0.001)
@@ -45,21 +46,34 @@ class SimpleModel:
 
     @classmethod
     def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
-        num_classes = len(np.unique(y_train))
-        model = cls(num_classes=num_classes)
+        if "happiness" in label_map:
+            target_idx = label_map["happiness"]
+        elif "happy" in label_map:
+            target_idx = label_map["happy"]
+        else:
+            raise ValueError("Neither 'happiness' nor 'happy' found in label_map.")
+
+        y_train_bin = (y_train == target_idx).astype("float32")
+        y_val_bin = (y_val == target_idx).astype("float32")
+
+        classes = np.unique(y_train_bin)
+        weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_train_bin)
+        class_weights = dict(zip(classes, weights))
+
+        model = cls()
         model.compile()
 
-        early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True, verbose=1)
-
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6, verbose=1)
+        early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True, verbose=0)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6, verbose=0)
 
         history = model.model.fit(
             X_train,
-            y_train,
-            validation_data=(X_val, y_val),
+            y_train_bin,
+            validation_data=(X_val, y_val_bin),
             epochs=epochs,
             batch_size=64,
             callbacks=[early_stopping, reduce_lr],
+            class_weight=class_weights,
         )
 
         model.model.save(model_filename)
@@ -67,15 +81,15 @@ class SimpleModel:
         return history
 
     def predict(self, images_np):
-        return np.argmax(self.model.predict(images_np), axis=1)
+        return (self.model.predict(images_np, verbose=0) > 0.5).astype("int32").flatten()
 
     @classmethod
     def eval(cls, val, output_dir, label_map=None, dataset_name=None):
         model_prefix = cls.__name__.lower()
         loaded_model = find_and_load_model(model_prefix)
         if loaded_model is None:
-            print("Error: Model could not be loaded for evaluation.")
             return
+
         evaluate_model_on_data(
             loaded_model,
             val,

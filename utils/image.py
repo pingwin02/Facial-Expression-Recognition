@@ -16,11 +16,6 @@ _predictor = None
 
 
 def get_dlib_detector_predictor():
-    """Return dlib detector and predictor, downloading predictor if necessary.
-
-    Returns:
-        tuple: (detector, predictor)
-    """
     global _detector, _predictor
     if _detector is None or _predictor is None:
         DLIB_LANDMARK_MODEL_FILENAME = "shape_predictor_68_face_landmarks.dat"
@@ -43,16 +38,6 @@ def get_dlib_detector_predictor():
 
 
 def detect_and_crop_face(frame, detector, predictor):
-    """Detect a single face, return normalized crop, crop box and landmarks.
-
-    Args:
-        frame: BGR image as numpy array.
-        detector: dlib face detector.
-        predictor: dlib shape predictor.
-
-    Returns:
-        tuple: (normalized_face, crop_box, landmarks) or (frame, None, None) if detection fails.
-    """
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = detector(gray, 1)
 
@@ -88,19 +73,6 @@ def detect_and_crop_face(frame, detector, predictor):
 
 
 def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, dataset_name, accuracy, filename):
-    """Save a grid image of sample frames with predicted and true labels.
-
-    Args:
-        frames: array-like of images (H,W,1) normalized [0,1] or raw.
-        preds: sequence of predicted labels (ints or strings).
-        labels: sequence of true labels (ints or strings).
-        debugs: list of dicts with optional keys 'class_map', 'crop_box', 'landmarks'.
-        output_dir: directory to save the output file.
-        model_name: name of the model (str).
-        dataset_name: name of the dataset (str).
-        accuracy: optional accuracy value (float).
-        filename: output filename (str).
-    """
     class_map = {}
     for debug in debugs:
         if debug and "class_map" in debug and isinstance(debug["class_map"], dict):

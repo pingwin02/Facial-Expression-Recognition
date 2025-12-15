@@ -4,7 +4,6 @@ import zipfile
 
 
 def ensure_dataset(input_dir, dataset_name):
-    """Ensure the specified dataset is downloaded and available in the input directory."""
     dataset_path = os.path.join(input_dir, dataset_name)
 
     if not os.path.exists(dataset_path):
