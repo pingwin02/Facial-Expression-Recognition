@@ -46,12 +46,10 @@ class BinaryModel:
 
     @classmethod
     def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
-        if "happiness" in label_map:
-            target_idx = label_map["happiness"]
-        elif "happy" in label_map:
-            target_idx = label_map["happy"]
+        if "neutral" in label_map:
+            target_idx = label_map["neutral"]
         else:
-            raise ValueError("Neither 'happiness' nor 'happy' found in label_map.")
+            raise ValueError("Label map must contain 'neutral' for binary classification.")
 
         y_train_bin = (y_train == target_idx).astype("float32")
         y_val_bin = (y_val == target_idx).astype("float32")

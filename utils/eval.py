@@ -25,11 +25,11 @@ def evaluate_model_on_data(
     if is_binary:
         all_preds_labels = (all_predictions > 0.5).astype("int32").flatten()
 
-        if label_map and ("happiness" in label_map or "happy" in label_map):
-            target_key = "happiness" if "happiness" in label_map else "happy"
+        if label_map and ("neutral" in label_map):
+            target_key = "neutral"
             target_idx = label_map[target_key]
             y_val_processed = (np.array(y_val).flatten() == target_idx).astype("int32")
-            display_map = {"Not Happiness": 0, "Happiness": 1}
+            display_map = {"not neutral": 0, "neutral": 1}
         else:
             y_val_processed = np.array(y_val).flatten()
             display_map = {0: 0, 1: 1}
