@@ -19,8 +19,10 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
         with open(cache_path, "rb") as f:
             result = pickle.load(f)
             print(f"{input_flag} dataset loaded from cache.")
-            print_stats("train", result[0][1], result[2])
-            print_stats("val", result[1][1], result[2])
+            print_stats("X_train", result[0][0])
+            print_stats("X_val", result[1][0])
+            print_stats("y_train", result[0][1], result[2])
+            print_stats("y_val", result[1][1], result[2])
             return result
 
     else:
@@ -62,8 +64,10 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
         X_val, y_val, val_debugs = process_video_data(val_df, video_dir, filename_col, label_map)
 
     print(f"{input_flag} dataset loaded from disk.")
-    print_stats("train", y_train, label_map)
-    print_stats("val", y_val, label_map)
+    print_stats("X_train", y_train)
+    print_stats("X_val", y_val)
+    print_stats("y_train", y_train, label_map)
+    print_stats("y_val", y_val, label_map)
 
     result = ((X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map)
 

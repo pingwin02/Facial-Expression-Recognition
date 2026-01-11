@@ -8,7 +8,7 @@ from utils.plotting import plot_metrics
 
 
 class BinaryModel:
-    def __init__(self, input_shape=(48, 48, 1)):
+    def __init__(self, input_shape=(48, 48, 4)):
         self.model = models.Sequential(
             [
                 layers.Conv2D(32, (3, 3), padding="same", input_shape=input_shape),
@@ -61,7 +61,7 @@ class BinaryModel:
         model = cls()
         model.compile()
 
-        early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True, verbose=0)
+        # early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=20, restore_best_weights=True, verbose=0)
         reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6, verbose=0)
 
         history = model.model.fit(
@@ -70,7 +70,7 @@ class BinaryModel:
             validation_data=(X_val, y_val_bin),
             epochs=epochs,
             batch_size=64,
-            callbacks=[early_stopping, reduce_lr],
+            callbacks=[reduce_lr],
             class_weight=class_weights,
         )
 

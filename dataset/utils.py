@@ -34,20 +34,27 @@ def join_data(data_tuples):
     return X_merged, y_merged, debugs_merged
 
 
-def print_stats(name, y_arr, label_map):
-    total = int(len(y_arr))
+def print_stats(name, arr, label_map=None):
     print(f"\nDataset stats ({name}):")
-    print(f"  Total samples: {total}")
 
-    if total == 0:
+    if len(arr) == 0:
         print("  No samples.")
         return
 
-    counts = Counter(y_arr.tolist())
-    for lbl_idx, cnt in sorted(counts.items()):
-        label_name = None
-        for k, v in label_map.items():
-            if v == lbl_idx:
-                label_name = k
-                break
-        print(f"  Class {lbl_idx} ({label_name}): {cnt}")
+    if label_map is None:
+        if hasattr(arr, "shape"):
+            print(f"  Shape: {arr.shape}")
+        else:
+            print(f"  Length: {len(arr)}")
+    else:
+        total = int(len(arr))
+        print(f"  Total samples: {total}")
+
+        counts = Counter(arr.tolist())
+        for lbl_idx, cnt in sorted(counts.items()):
+            label_name = None
+            for k, v in label_map.items():
+                if v == lbl_idx:
+                    label_name = k
+                    break
+            print(f"  Class {lbl_idx} ({label_name}): {cnt}")
