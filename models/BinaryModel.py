@@ -61,7 +61,8 @@ class BinaryModel:
         model = cls()
         model.compile()
 
-        # early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=20, restore_best_weights=True, verbose=0)
+        model.model.summary()
+
         reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6, verbose=0)
 
         history = model.model.fit(

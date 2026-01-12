@@ -118,7 +118,11 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
         img = np.squeeze(frame)
         if img.dtype != np.uint8:
             img = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
-        ax.imshow(img, cmap="gray")
+
+        if img.ndim == 3 and img.shape[-1] == 4:
+            ax.imshow(img[:, :, :3], cmap="gray")
+        else:
+            ax.imshow(img, cmap="gray")
 
         if debug:
             lm = debug.get("landmarks")
@@ -129,10 +133,12 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
                     x1, y1, x2, y2 = crop
                     crop_w = max(1.0, float(x2 - x1))
                     crop_h = max(1.0, float(y2 - y1))
+
                     lm_scaled = np.zeros_like(lm_arr, dtype=np.float32)
                     lm_scaled[:, 0] = (lm_arr[:, 0] - x1) * (IMG_WIDTH / crop_w)
                     lm_scaled[:, 1] = (lm_arr[:, 1] - y1) * (IMG_HEIGHT / crop_h)
-                    ax.scatter(lm_scaled[:, 0], lm_scaled[:, 1], c="lime", s=12)
+
+                    ax.scatter(lm_scaled[:, 0], lm_scaled[:, 1], c="lime", s=8, alpha=0.8)
                 except Exception:
                     pass
 

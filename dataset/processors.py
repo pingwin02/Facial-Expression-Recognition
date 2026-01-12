@@ -1,7 +1,9 @@
 import os
+
 import cv2
 import numpy as np
 from tqdm import tqdm
+
 from utils.image import get_dlib_detector_predictor, detect_and_crop_face
 
 IMG_HEIGHT = 48
@@ -60,12 +62,12 @@ def process_image_directory(directory, label_map):
 
                         X.append(combined_img)
                         y.append(label_map[label])
-                        debugs.append({"crop_box": crop_box})
+                        debugs.append({"crop_box": crop_box, "landmarks": landmarks})
 
     return np.array(X), np.array(y), debugs
 
 
-def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=5):
+def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=10):
     X, y, debugs = [], [], []
     detector_pack = get_dlib_detector_predictor()
 
@@ -111,7 +113,9 @@ def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=
                 X.append(combined_img)
                 y.append(label)
 
-                debugs.append({"video": row[filename_col], "frame_idx": frame_idx, "crop_box": crop_box})
+                debugs.append(
+                    {"video": row[filename_col], "frame_idx": frame_idx, "crop_box": crop_box, "landmarks": landmarks}
+                )
 
         cap.release()
 
