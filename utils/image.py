@@ -1,11 +1,10 @@
 import bz2
-import os
-import urllib.request
-
 import cv2
 import dlib
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+import urllib.request
 
 IMG_HEIGHT = 48
 IMG_WIDTH = 48
@@ -119,8 +118,18 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
         if img.dtype != np.uint8:
             img = (np.clip(img, 0.0, 1.0) * 255).astype(np.uint8)
 
-        if img.ndim == 3 and img.shape[-1] == 4:
-            ax.imshow(img[:, :, :3], cmap="gray")
+        if img.ndim == 2:
+            ax.imshow(img, cmap="gray")
+        elif img.ndim == 3 and img.shape[-1] == 1:
+            ax.imshow(img[:, :, 0], cmap="gray")
+        elif img.ndim == 3 and img.shape[-1] == 2:
+            face_channel = img[:, :, 0]
+            landmark_channel = img[:, :, 1]
+            preview = np.stack([face_channel, face_channel, face_channel], axis=-1)
+            preview[:, :, 1] = np.maximum(preview[:, :, 1], landmark_channel)
+            ax.imshow(preview)
+        elif img.ndim == 3 and img.shape[-1] >= 3:
+            ax.imshow(img[:, :, :3])
         else:
             ax.imshow(img, cmap="gray")
 

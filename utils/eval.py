@@ -1,17 +1,124 @@
+import json
 import numpy as np
+from sklearn.metrics import balanced_accuracy_score, precision_recall_fscore_support, f1_score
 
 from utils.image import save_sample_frames
 from utils.plotting import save_confusion_matrix
 
 
+def _build_label_names(label_map, labels):
+    if not label_map:
+        return [str(lbl) for lbl in labels]
+    inv = {v: k for k, v in label_map.items()}
+    return [str(inv.get(lbl, lbl)) for lbl in labels]
+
+
+def _format_metrics_block(title, y_true, y_pred, label_map=None):
+    labels = sorted(np.unique(np.concatenate([y_true, y_pred])).tolist())
+    label_names = _build_label_names(label_map, labels)
+
+    macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    weighted_f1 = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    bal_acc = balanced_accuracy_score(y_true, y_pred)
+
+    precision, recall, f1_vals, support = precision_recall_fscore_support(
+        y_true, y_pred, labels=labels, average=None, zero_division=0
+    )
+
+    lines = [f"{title} metrics:"]
+    lines.append(f"  Macro-F1: {macro_f1:.4f}")
+    lines.append(f"  Weighted-F1: {weighted_f1:.4f}")
+    lines.append(f"  Balanced Accuracy: {bal_acc:.4f}")
+    lines.append("  Per-class metrics:")
+
+    for idx, class_name in enumerate(label_names):
+        lines.append(
+            f"    {class_name}: precision={precision[idx]:.4f}, recall={recall[idx]:.4f}, "
+            f"f1={f1_vals[idx]:.4f}, support={int(support[idx])}"
+        )
+
+    return "\n".join(lines)
+
+
+def _collect_metrics_dict(y_true, y_pred, label_map=None):
+    labels = sorted(np.unique(np.concatenate([y_true, y_pred])).tolist())
+    label_names = _build_label_names(label_map, labels)
+
+    macro_f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    weighted_f1 = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+    bal_acc = balanced_accuracy_score(y_true, y_pred)
+
+    precision, recall, f1_vals, support = precision_recall_fscore_support(
+        y_true, y_pred, labels=labels, average=None, zero_division=0
+    )
+
+    per_class = {}
+    for idx, class_name in enumerate(label_names):
+        per_class[class_name] = {
+            "label_index": int(labels[idx]),
+            "precision": float(precision[idx]),
+            "recall": float(recall[idx]),
+            "f1": float(f1_vals[idx]),
+            "support": int(support[idx]),
+        }
+
+    return {
+        "accuracy": float(np.mean(y_true == y_pred)),
+        "macro_f1": float(macro_f1),
+        "weighted_f1": float(weighted_f1),
+        "balanced_accuracy": float(bal_acc),
+        "per_class": per_class,
+        "labels": [int(lbl) for lbl in labels],
+    }
+
+
+def _evaluate_video_level(predictions, y_labels, debug_infos, is_binary):
+    if debug_infos is None or len(debug_infos) != len(y_labels):
+        return None
+
+    video_groups = {}
+    for idx, debug in enumerate(debug_infos):
+        if not isinstance(debug, dict):
+            continue
+        video_name = debug.get("video")
+        if not video_name:
+            continue
+        video_groups.setdefault(video_name, []).append(idx)
+
+    if not video_groups:
+        return None
+
+    y_true_video = []
+    y_pred_video = []
+
+    for _, indices in video_groups.items():
+        indices = np.array(indices, dtype=int)
+        labels_for_video = y_labels[indices]
+        values, counts = np.unique(labels_for_video, return_counts=True)
+        true_label = int(values[np.argmax(counts)])
+
+        preds_for_video = predictions[indices]
+        if is_binary:
+            mean_score = float(np.mean(preds_for_video.reshape(-1)))
+            pred_label = int(mean_score > 0.5)
+        else:
+            mean_scores = np.mean(preds_for_video, axis=0)
+            pred_label = int(np.argmax(mean_scores))
+
+        y_true_video.append(true_label)
+        y_pred_video.append(pred_label)
+
+    return np.array(y_true_video, dtype=np.int32), np.array(y_pred_video, dtype=np.int32)
+
+
 def evaluate_model_on_data(
-    loaded_model,
-    val_tuple,
-    output_dir,
-    model_name="simple_sample_grid",
-    max_samples=10,
-    label_map=None,
-    dataset_name=None,
+        loaded_model,
+        val_tuple,
+        output_dir,
+        model_name="simple_sample_grid",
+        max_samples=10,
+        label_map=None,
+        dataset_name=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -42,9 +149,47 @@ def evaluate_model_on_data(
     accuracy = np.mean(all_preds_labels == y_val_processed)
     print(f"Validation Accuracy: {accuracy * 100:.2f}%")
 
-    save_confusion_matrix(
+    frame_metrics_text = _format_metrics_block(
+        "Frame-level",
         y_val_processed,
         all_preds_labels,
+        label_map=display_map,
+    )
+    print(frame_metrics_text)
+    frame_metrics_dict = _collect_metrics_dict(y_val_processed, all_preds_labels, label_map=display_map)
+
+    cm_true = y_val_processed
+    cm_pred = all_preds_labels
+
+    metrics_blocks = [frame_metrics_text]
+    metrics_json = {
+        "dataset": dataset_name,
+        "model": model_name,
+        "frame_level": frame_metrics_dict,
+    }
+
+    video_eval = _evaluate_video_level(all_predictions, y_val_processed, val_debugs, is_binary=is_binary)
+    if video_eval is not None:
+        y_video_true, y_video_pred = video_eval
+        video_accuracy = np.mean(y_video_pred == y_video_true)
+        print(f"Video-level Accuracy: {video_accuracy * 100:.2f}%")
+
+        video_metrics_text = _format_metrics_block(
+            "Video-level",
+            y_video_true,
+            y_video_pred,
+            label_map=display_map,
+        )
+        print(video_metrics_text)
+        metrics_blocks.append(video_metrics_text)
+        metrics_json["video_level"] = _collect_metrics_dict(y_video_true, y_video_pred, label_map=display_map)
+
+        cm_true = y_video_true
+        cm_pred = y_video_pred
+
+    save_confusion_matrix(
+        cm_true,
+        cm_pred,
         output_dir,
         label_map=display_map,
         filename=f"{model_name}_confusion_matrix.png",
@@ -99,3 +244,13 @@ def evaluate_model_on_data(
         accuracy=accuracy,
         filename=f"{model_name}_samples_no_landmarks.png",
     )
+
+    metrics_report_path = f"{output_dir}/{model_name}_metrics.txt"
+    with open(metrics_report_path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(metrics_blocks) + "\n")
+    print(f"Saved metrics report to {metrics_report_path}")
+
+    metrics_json_path = f"{output_dir}/{model_name}_metrics.json"
+    with open(metrics_json_path, "w", encoding="utf-8") as f:
+        json.dump(metrics_json, f, ensure_ascii=False, indent=2)
+    print(f"Saved metrics JSON to {metrics_json_path}")

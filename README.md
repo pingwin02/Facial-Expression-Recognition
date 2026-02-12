@@ -17,6 +17,7 @@ conda install -c conda-forge libstdcxx-ng gcc_linux-64 gxx_linux-64 -y
 ```
 
 ## Useful commands
+
 - **Run script in background**: To run a script in the background, you can use the `nohup` command:
   ```bash
   nohup ./train_eval.sh &> out.log &

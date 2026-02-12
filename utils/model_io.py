@@ -46,11 +46,17 @@ def find_and_load_model(model_prefix="SimpleModel"):
 
     print(f"Loading trained model from: {selected_path}")
     try:
-        loaded_model = tf.keras.models.load_model(selected_path)
+        loaded_model = tf.keras.models.load_model(selected_path, compile=False)
         return loaded_model
     except Exception as e:
-        print(f"Failed to load model: {e}")
-        return None
+        print(f"Standard load failed: {e}")
+        print("Retrying model load with safe_mode=False for trusted local artifact...")
+        try:
+            loaded_model = tf.keras.models.load_model(selected_path, safe_mode=False, compile=False)
+            return loaded_model
+        except Exception as e2:
+            print(f"Failed to load model: {e2}")
+            return None
 
 
 def load_model_class(model_name):

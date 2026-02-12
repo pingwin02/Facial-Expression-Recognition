@@ -1,7 +1,5 @@
 import os
 
-from dataset.utils import join_data
-
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 from dataset.downloader import ensure_dataset
@@ -51,8 +49,7 @@ def main():
     if args.mode == "eval":
         if args.epochs is not None:
             print("Warning: --epochs argument is ignored in eval mode.")
-        merged = join_data([(X_train, y_train, train_debugs), (X_val, y_val, val_debugs)])
-        model.eval(merged, OUTPUT_DIR, label_map=label_map, dataset_name=args.input)
+        model.eval((X_val, y_val, val_debugs), OUTPUT_DIR, label_map=label_map, dataset_name=args.input)
 
 
 if __name__ == "__main__":

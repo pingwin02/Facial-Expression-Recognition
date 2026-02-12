@@ -1,17 +1,19 @@
 import json
-import os
-import pickle
-
 import numpy as np
+import os
 import pandas as pd
+import pickle
 
 from dataset.processors import process_image_directory, process_video_data
 from dataset.utils import split_data, print_stats
 
+CACHE_VERSION = "video_v4"
+
 
 def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache", no_cache=False):
     os.makedirs(cache_dir, exist_ok=True)
-    cache_filename = f"{input_flag}_seed{seed}.pkl"
+    cache_input_name = input_flag.replace("+", "plus")
+    cache_filename = f"{cache_input_name}_seed{seed}_{CACHE_VERSION}.pkl"
     cache_path = os.path.join(cache_dir, cache_filename)
 
     if os.path.exists(cache_path) and not no_cache:
@@ -57,11 +59,15 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
             id_col = "id_examined"
             filename_col = "file"
 
-        train_df, val_df = split_data(df, id_col)
+        train_df, val_df = split_data(df, id_col, seed=seed)
         label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
 
-        X_train, y_train, train_debugs = process_video_data(train_df, video_dir, filename_col, label_map)
-        X_val, y_val, val_debugs = process_video_data(val_df, video_dir, filename_col, label_map)
+        X_train, y_train, train_debugs = process_video_data(
+            train_df, video_dir, filename_col, label_map, frames_per_video=12, max_candidates=60
+        )
+        X_val, y_val, val_debugs = process_video_data(
+            val_df, video_dir, filename_col, label_map, frames_per_video=12, max_candidates=60
+        )
 
     print(f"{input_flag} dataset loaded from disk.")
     print_stats("X_train", y_train)
