@@ -146,46 +146,35 @@ def evaluate_model_on_data(
         y_val_processed = np.array(y_val).flatten()
         display_map = label_map
 
-    accuracy = np.mean(all_preds_labels == y_val_processed)
-    print(f"Validation Accuracy: {accuracy * 100:.2f}%")
-
-    frame_metrics_text = _format_metrics_block(
-        "Frame-level",
-        y_val_processed,
-        all_preds_labels,
-        label_map=display_map,
-    )
-    print(frame_metrics_text)
-    frame_metrics_dict = _collect_metrics_dict(y_val_processed, all_preds_labels, label_map=display_map)
-
     cm_true = y_val_processed
     cm_pred = all_preds_labels
-
-    metrics_blocks = [frame_metrics_text]
-    metrics_json = {
-        "dataset": dataset_name,
-        "model": model_name,
-        "frame_level": frame_metrics_dict,
-    }
+    selected_level = "frame"
 
     video_eval = _evaluate_video_level(all_predictions, y_val_processed, val_debugs, is_binary=is_binary)
     if video_eval is not None:
         y_video_true, y_video_pred = video_eval
-        video_accuracy = np.mean(y_video_pred == y_video_true)
-        print(f"Video-level Accuracy: {video_accuracy * 100:.2f}%")
-
-        video_metrics_text = _format_metrics_block(
-            "Video-level",
-            y_video_true,
-            y_video_pred,
-            label_map=display_map,
-        )
-        print(video_metrics_text)
-        metrics_blocks.append(video_metrics_text)
-        metrics_json["video_level"] = _collect_metrics_dict(y_video_true, y_video_pred, label_map=display_map)
-
         cm_true = y_video_true
         cm_pred = y_video_pred
+        selected_level = "video"
+
+    accuracy = np.mean(cm_pred == cm_true)
+    print(f"Validation Accuracy: {accuracy * 100:.2f}%")
+
+    metrics_text = _format_metrics_block(
+        "Validation",
+        cm_true,
+        cm_pred,
+        label_map=display_map,
+    )
+    print(metrics_text)
+
+    metrics_blocks = [metrics_text]
+    metrics_json = {
+        "dataset": dataset_name,
+        "model": model_name,
+        "evaluation_level": selected_level,
+        "validation": _collect_metrics_dict(cm_true, cm_pred, label_map=display_map),
+    }
 
     save_confusion_matrix(
         cm_true,
@@ -198,6 +187,9 @@ def evaluate_model_on_data(
     selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False)
 
     frames_sample = X_val[selected_indices]
+    if hasattr(frames_sample, "ndim") and frames_sample.ndim == 5:
+        center_t = frames_sample.shape[1] // 2
+        frames_sample = frames_sample[:, center_t]
     labels_sample = y_val_processed[selected_indices]
     preds_sample = all_preds_labels[selected_indices]
 

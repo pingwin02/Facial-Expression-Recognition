@@ -8,7 +8,7 @@ from utils.plotting import plot_metrics
 
 
 class BinaryModel:
-    def __init__(self, input_shape=(48, 48, 4)):
+    def __init__(self, input_shape=(48, 48, 2)):
         self.model = models.Sequential(
             [
                 layers.Conv2D(32, (3, 3), padding="same", input_shape=input_shape),
@@ -46,6 +46,13 @@ class BinaryModel:
 
     @classmethod
     def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
+        if hasattr(X_train, "ndim") and X_train.ndim == 5:
+            center_idx = X_train.shape[1] // 2
+            X_train = X_train[:, center_idx]
+        if hasattr(X_val, "ndim") and X_val.ndim == 5:
+            center_idx = X_val.shape[1] // 2
+            X_val = X_val[:, center_idx]
+
         if "neutral" in label_map:
             target_idx = label_map["neutral"]
         else:
@@ -80,6 +87,9 @@ class BinaryModel:
         return history
 
     def predict(self, images_np):
+        if hasattr(images_np, "ndim") and images_np.ndim == 5:
+            center_idx = images_np.shape[1] // 2
+            images_np = images_np[:, center_idx]
         return (self.model.predict(images_np, verbose=0) > 0.5).astype("int32").flatten()
 
     @classmethod

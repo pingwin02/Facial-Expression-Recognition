@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers, applications
 
 from utils.eval import evaluate_model_on_data
@@ -7,7 +8,7 @@ from utils.plotting import plot_metrics
 
 
 class TransferModel:
-    def __init__(self, input_shape=(48, 48, 2), num_classes=7):
+    def __init__(self, input_shape=(8, 48, 48, 2), num_classes=7):
         inputs = layers.Input(shape=input_shape)
 
         data_augmentation = models.Sequential(
@@ -15,37 +16,44 @@ class TransferModel:
                 layers.RandomFlip("horizontal"),
                 layers.RandomContrast(0.12),
             ],
-            name="video_aug",
+            name="frame_aug",
         )
 
-        x = data_augmentation(inputs)
+        x = layers.TimeDistributed(data_augmentation, name="video_aug")(inputs)
 
-        x = layers.Conv2D(16, (1, 1), padding="same", use_bias=False)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation("relu")(x)
+        x = layers.TimeDistributed(layers.Conv2D(16, (1, 1), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.BatchNormalization())(x)
+        x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
-        x = layers.Conv2D(3, (3, 3), padding="same", use_bias=False)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation("relu")(x)
+        x = layers.TimeDistributed(layers.Conv2D(3, (3, 3), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.BatchNormalization())(x)
+        x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
-        x = layers.Resizing(96, 96, interpolation="bilinear")(x)
+        x = layers.TimeDistributed(layers.Resizing(96, 96, interpolation="bilinear"))(x)
 
-        x = layers.Rescaling(scale=2.0, offset=-1.0)(x)
+        x = layers.TimeDistributed(layers.Rescaling(scale=2.0, offset=-1.0))(x)
 
-        self.base_model = applications.MobileNetV2(
-            input_shape=(96, 96, 3), include_top=False, weights="imagenet", alpha=1.0
-        )
+        self.base_model = applications.EfficientNetV2B0(input_shape=(96, 96, 3), include_top=False, weights="imagenet")
 
-        x = self.base_model(x)
+        x = layers.TimeDistributed(self.base_model)(x)
+        x = layers.TimeDistributed(layers.GlobalAveragePooling2D())(x)
+        x = layers.TimeDistributed(layers.BatchNormalization())(x)
+        x = layers.TimeDistributed(layers.Dropout(0.25))(x)
 
-        x = layers.GlobalAveragePooling2D()(x)
+        x = layers.Bidirectional(layers.GRU(128, return_sequences=True, dropout=0.2, recurrent_dropout=0.0))(x)
+
+        attn = layers.Dense(1, activation="tanh", name="temporal_attention_logits")(x)
+        attn = layers.Softmax(axis=1, name="temporal_attention_weights")(attn)
+        x = layers.Dot(axes=1, name="temporal_attention_pool")([attn, x])
+        x = layers.Flatten()(x)
+
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.4)(x)
 
         x = layers.Dense(256)(x)
         x = layers.BatchNormalization()(x)
         x = layers.Activation("relu")(x)
-        x = layers.Dropout(0.35)(x)
+        x = layers.Dropout(0.3)(x)
 
         outputs = layers.Dense(num_classes, activation="softmax")(x)
 
@@ -75,7 +83,7 @@ class TransferModel:
 
         model_loss = loss
         if model_loss == "sparse_categorical_crossentropy":
-            model_loss = "sparse_categorical_crossentropy"
+            model_loss = tf.keras.losses.SparseCategoricalCrossentropy()
 
         self.model.compile(optimizer=optimizer, loss=model_loss, metrics=metrics)
 
@@ -121,7 +129,7 @@ class TransferModel:
         return X_balanced[shuffle_idx], y_balanced[shuffle_idx]
 
     @staticmethod
-    def _build_sample_weights(y, min_weight=0.8, max_weight=2.2):
+    def _build_class_weight_map(y, min_weight=0.5, max_weight=8.0):
         y = np.asarray(y)
         classes, counts = np.unique(y, return_counts=True)
         total = float(np.sum(counts))
@@ -130,10 +138,15 @@ class TransferModel:
         class_weights = {}
         for class_id, class_count in zip(classes, counts):
             raw = total / (n_classes * float(class_count))
-            softened = float(np.sqrt(raw))
-            class_weights[int(class_id)] = float(np.clip(softened, min_weight, max_weight))
+            class_weights[int(class_id)] = float(np.clip(raw, min_weight, max_weight))
 
-        sample_weights = np.array([class_weights[int(lbl)] for lbl in y], dtype=np.float32)
+        return class_weights
+
+    @staticmethod
+    def _build_sample_weights(y, class_weights):
+        y = np.asarray(y)
+        sample_weights = np.array([class_weights.get(int(lbl), 1.0) for lbl in y], dtype=np.float32)
+
         return sample_weights
 
     @classmethod
@@ -141,14 +154,25 @@ class TransferModel:
         X_train = cls._prepare_inputs(X_train)
         X_val = cls._prepare_inputs(X_val)
 
-        X_train, y_train = cls._oversample_minority_classes(X_train, y_train)
-        sample_weights = cls._build_sample_weights(y_train)
+        y_train_original = np.asarray(y_train)
+
+        if X_train.ndim == 5:
+            X_train, y_train = cls._oversample_minority_classes(
+                X_train, y_train, min_target_ratio=0.2, max_multiplier=4
+            )
+        else:
+            X_train, y_train = cls._oversample_minority_classes(X_train, y_train)
+
+        class_weight_map = cls._build_class_weight_map(y_train_original)
+        sample_weights = cls._build_sample_weights(y_train, class_weight_map)
+        val_sample_weights = cls._build_sample_weights(y_val, class_weight_map)
+        print(f"Class weights: {class_weight_map}")
 
         num_classes = len(np.unique(np.concatenate([y_train, y_val])))
         input_shape = X_train.shape[1:]
 
         model = cls(input_shape=input_shape, num_classes=num_classes)
-        warmup_epochs = min(max(3, epochs // 6), 8)
+        warmup_epochs = min(max(4, epochs // 8), 10)
         warmup_epochs = min(warmup_epochs, max(1, epochs))
 
         model.set_fine_tune_layers(trainable_backbone_layers=0)
@@ -156,21 +180,26 @@ class TransferModel:
 
         model.model.summary()
 
-        early_stopping = callbacks.EarlyStopping(monitor="val_loss", patience=12, restore_best_weights=True, verbose=1)
+        early_stopping = callbacks.EarlyStopping(
+            monitor="val_loss", patience=12, restore_best_weights=True, mode="min", verbose=1
+        )
 
         reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.3, patience=5, min_lr=1e-7, verbose=1)
 
-        save_best = callbacks.ModelCheckpoint(model_filename, monitor="val_loss", save_best_only=True, verbose=0)
+        save_best = callbacks.ModelCheckpoint(
+            model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
+        )
 
         print(f"Starting training TransferModel for {epochs} epochs...")
 
         history_warmup = model.model.fit(
             X_train,
             y_train,
-            validation_data=(X_val, y_val),
+            validation_data=(X_val, y_val, val_sample_weights),
             epochs=warmup_epochs,
-            batch_size=32,
+            batch_size=8,
             sample_weight=sample_weights,
+            callbacks=[save_best],
         )
 
         if epochs > warmup_epochs:
@@ -180,10 +209,10 @@ class TransferModel:
             history_finetune = model.model.fit(
                 X_train,
                 y_train,
-                validation_data=(X_val, y_val),
+                validation_data=(X_val, y_val, val_sample_weights),
                 initial_epoch=warmup_epochs,
                 epochs=epochs,
-                batch_size=32,
+                batch_size=8,
                 callbacks=[early_stopping, reduce_lr, save_best],
                 sample_weight=sample_weights,
             )
@@ -195,6 +224,7 @@ class TransferModel:
         else:
             history_dict = history_warmup.history
 
+        model.model.load_weights(model_filename)
         model.model.save(model_filename)
         plot_metrics(history_dict, output_dir, model_name=cls.__name__)
 

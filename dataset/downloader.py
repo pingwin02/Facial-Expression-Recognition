@@ -1,7 +1,11 @@
+import csv
+import json
 import os
 import shutil
 import urllib.request
 import zipfile
+from collections import Counter
+from datetime import datetime, timezone
 
 
 def _dataset_is_ready(dataset_path, dataset_name):
@@ -43,6 +47,151 @@ def _normalize_extracted_layout(dataset_path, required_marker):
                 os.rmdir(directory_path)
 
 
+def _summarize_dataset_folder(dataset_path):
+    file_count = 0
+    dir_count = 0
+    total_size_bytes = 0
+
+    for root, dirs, files in os.walk(dataset_path):
+        dir_count += len(dirs)
+
+        for filename in files:
+            full_path = os.path.join(root, filename)
+
+            file_count += 1
+            try:
+                total_size_bytes += int(os.path.getsize(full_path))
+            except OSError:
+                pass
+
+    return {
+        "file_count": file_count,
+        "dir_count": dir_count,
+        "total_size_bytes": total_size_bytes,
+    }
+
+
+def _build_distribution_result(counts_by_label):
+    counts = {str(label).strip().lower(): int(count) for label, count in counts_by_label.items() if int(count) > 0}
+    return {
+        "num_labels": len(counts),
+        "total_items": int(sum(counts.values())),
+        "counts_by_label": dict(sorted(counts.items())),
+    }
+
+
+def _label_distribution_from_rows(rows, label_key, item_key):
+    label_to_items = {}
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        label = str(row.get(label_key, "unknown")).strip().lower()
+        item_id = str(row.get(item_key, "")).strip()
+        if not item_id:
+            continue
+
+        label_to_items.setdefault(label, set()).add(item_id)
+
+    counts = {label: len(items) for label, items in label_to_items.items()}
+    return _build_distribution_result(counts)
+
+
+def _label_distribution_from_json(json_path, label_key, item_key):
+    if not os.path.exists(json_path):
+        return None
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        rows = json.load(f)
+
+    return _label_distribution_from_rows(rows, label_key=label_key, item_key=item_key)
+
+
+def _label_distribution_from_csv(csv_path, delimiter, label_key, item_key):
+    if not os.path.exists(csv_path):
+        return None
+
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        rows = list(reader)
+
+    return _label_distribution_from_rows(rows, label_key=label_key, item_key=item_key)
+
+
+def _label_distribution_from_image_folders(root_dir):
+    if not os.path.isdir(root_dir):
+        return None
+
+    label_counts = Counter()
+    for label in os.listdir(root_dir):
+        label_path = os.path.join(root_dir, label)
+        if not os.path.isdir(label_path):
+            continue
+        label_counts[label] = sum(
+            1 for entry in os.listdir(label_path) if os.path.isfile(os.path.join(label_path, entry)))
+
+    return _build_distribution_result(label_counts)
+
+
+def _load_label_distribution(dataset_name, dataset_path):
+    row_based_sources = {
+        "devemo+": {
+            "kind": "json",
+            "path": "devemo+.json",
+            "label_key": "label",
+            "item_key": "filename",
+        },
+        "devemo": {
+            "kind": "csv",
+            "path": "_clips_info.csv",
+            "delimiter": ";",
+            "label_key": "label",
+            "item_key": "file",
+        },
+    }
+
+    source = row_based_sources.get(dataset_name)
+    if source is not None:
+        source_path = os.path.join(dataset_path, source["path"])
+        if source["kind"] == "json":
+            return _label_distribution_from_json(source_path, label_key=source["label_key"],
+                                                 item_key=source["item_key"])
+        return _label_distribution_from_csv(
+            source_path,
+            delimiter=source.get("delimiter", ","),
+            label_key=source["label_key"],
+            item_key=source["item_key"],
+        )
+
+    if dataset_name == "fer2013":
+        return _label_distribution_from_image_folders(os.path.join(dataset_path, "train"))
+
+    return None
+
+
+def _write_dataset_details_json(dataset_name, dataset_path, download_url, archive_name, dataset_zip, required_marker):
+    details_path = os.path.join(dataset_path, "!dataset_details.json")
+    details = {
+        "dataset_name": dataset_name,
+        "prepared_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source": {
+            "download_url": download_url,
+            "archive_name": archive_name,
+            "archive_path": dataset_zip,
+        },
+        "required_marker": required_marker,
+        "dataset_path": dataset_path,
+        "summary": _summarize_dataset_folder(dataset_path),
+        "labels": _load_label_distribution(dataset_name, dataset_path),
+    }
+
+    with open(details_path, "w", encoding="utf-8") as f:
+        json.dump(details, f, ensure_ascii=False, indent=2)
+
+    print(f"Saved dataset details to {details_path}")
+
+
 def _download_and_extract(dataset_name, download_url, archive_name, dataset_path, required_marker):
     downloads_dir = "downloads"
     os.makedirs(downloads_dir, exist_ok=True)
@@ -63,6 +212,14 @@ def _download_and_extract(dataset_name, download_url, archive_name, dataset_path
         zip_ref.extractall(dataset_path)
 
     _normalize_extracted_layout(dataset_path, required_marker)
+    _write_dataset_details_json(
+        dataset_name=dataset_name,
+        dataset_path=dataset_path,
+        download_url=download_url,
+        archive_name=archive_name,
+        dataset_zip=dataset_zip,
+        required_marker=required_marker,
+    )
 
 
 def ensure_dataset(input_dir, dataset_name):
@@ -91,14 +248,25 @@ def ensure_dataset(input_dir, dataset_name):
 
     _normalize_extracted_layout(dataset_path, dataset_configs[dataset_name]["marker"])
 
+    config = dataset_configs[dataset_name]
+    downloads_dir = "downloads"
+    dataset_zip = os.path.join(downloads_dir, config["archive"])
+
     if _dataset_is_ready(dataset_path, dataset_name):
+        _write_dataset_details_json(
+            dataset_name=dataset_name,
+            dataset_path=dataset_path,
+            download_url=config["url"],
+            archive_name=config["archive"],
+            dataset_zip=dataset_zip,
+            required_marker=config["marker"],
+        )
         print(f"{dataset_name} dataset already prepared at {dataset_path}.")
         return
 
     print(f"{dataset_name} dataset not found or incomplete. Preparing dataset...")
     os.makedirs(dataset_path, exist_ok=True)
 
-    config = dataset_configs[dataset_name]
     _download_and_extract(
         dataset_name=dataset_name,
         download_url=config["url"],

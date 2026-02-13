@@ -4,13 +4,19 @@ import os
 import pandas as pd
 import pickle
 
-from dataset.processors import process_image_directory, process_video_data
+from dataset.processors import process_image_directory, process_video_sequences
 from dataset.utils import split_data, print_stats
 
-CACHE_VERSION = "video_v4"
+CACHE_VERSION = "video_v5"
 
 
-def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache", no_cache=False):
+def load_data(
+        input_dir,
+        input_flag="devemo",
+        seed=42,
+        cache_dir="input/.cache",
+        no_cache=False,
+):
     os.makedirs(cache_dir, exist_ok=True)
     cache_input_name = input_flag.replace("+", "plus")
     cache_filename = f"{cache_input_name}_seed{seed}_{CACHE_VERSION}.pkl"
@@ -25,6 +31,7 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
             print_stats("X_val", result[1][0])
             print_stats("y_train", result[0][1], result[2])
             print_stats("y_val", result[1][1], result[2])
+            print_stats("split", None, result[2], split_arrays=(result[0][1], result[1][1]))
             return result
 
     else:
@@ -62,18 +69,29 @@ def load_data(input_dir, input_flag="devemo", seed=42, cache_dir="input/.cache",
         train_df, val_df = split_data(df, id_col, seed=seed)
         label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
 
-        X_train, y_train, train_debugs = process_video_data(
-            train_df, video_dir, filename_col, label_map, frames_per_video=12, max_candidates=60
+        X_train, y_train, train_debugs = process_video_sequences(
+            train_df,
+            video_dir,
+            filename_col,
+            label_map,
+            sequence_length=8,
+            max_candidates=90,
         )
-        X_val, y_val, val_debugs = process_video_data(
-            val_df, video_dir, filename_col, label_map, frames_per_video=12, max_candidates=60
+        X_val, y_val, val_debugs = process_video_sequences(
+            val_df,
+            video_dir,
+            filename_col,
+            label_map,
+            sequence_length=8,
+            max_candidates=90,
         )
 
     print(f"{input_flag} dataset loaded from disk.")
-    print_stats("X_train", y_train)
-    print_stats("X_val", y_val)
+    print_stats("X_train", X_train)
+    print_stats("X_val", X_val)
     print_stats("y_train", y_train, label_map)
     print_stats("y_val", y_val, label_map)
+    print_stats("split", None, label_map, split_arrays=(y_train, y_val))
 
     result = ((X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map)
 

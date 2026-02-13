@@ -35,7 +35,9 @@ def main():
     ensure_dataset(INPUT_DIR, dataset_name=args.input)
 
     (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(
-        INPUT_DIR, args.input, no_cache=args.no_cache
+        INPUT_DIR,
+        args.input,
+        no_cache=args.no_cache,
     )
 
     OUTPUT_DIR, MODEL_PATH = prepare_output_directory(model, args.mode, dataset=args.input)
