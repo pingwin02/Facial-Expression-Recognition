@@ -9,14 +9,11 @@ def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
 
     rng = np.random.default_rng(seed)
 
-    id_label_counts_df = (
-        df.groupby([id_col, label_col]).size().unstack(fill_value=0).sort_index(axis=1)
-    )
+    id_label_counts_df = df.groupby([id_col, label_col]).size().unstack(fill_value=0).sort_index(axis=1)
     labels = list(id_label_counts_df.columns)
 
     id_to_counts = {
-        identity: id_label_counts_df.loc[identity].to_numpy(dtype=np.float64)
-        for identity in id_label_counts_df.index
+        identity: id_label_counts_df.loc[identity].to_numpy(dtype=np.float64) for identity in id_label_counts_df.index
     }
 
     total_counts = id_label_counts_df.sum(axis=0).to_numpy(dtype=np.float64)
@@ -76,7 +73,7 @@ def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
                 ident
                 for ident in train_ids
                 if id_to_counts[ident][label_idx] > 0
-                   and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
+                and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
             ]
             if candidates and len(val_ids) < max_val_ids:
                 chosen = min(candidates, key=lambda ident: balance_error(current_val_counts + id_to_counts[ident]))
@@ -168,10 +165,7 @@ def print_stats(name, arr, label_map=None, split_arrays=None):
             train_cnt = int(train_counts.get(lbl_idx, 0))
             val_cnt = int(val_counts.get(lbl_idx, 0))
             val_ratio = (100.0 * val_cnt / all_cnt) if all_cnt > 0 else 0.0
-            print(
-                f"  {label_name}: all={all_cnt} train={train_cnt} "
-                f"val={val_cnt} val%={val_ratio:.1f}"
-            )
+            print(f"  {label_name}: all={all_cnt} train={train_cnt} " f"val={val_cnt} val%={val_ratio:.1f}")
         return
 
     if len(arr) == 0:

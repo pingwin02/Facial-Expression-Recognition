@@ -112,18 +112,30 @@ def _evaluate_video_level(predictions, y_labels, debug_infos, is_binary):
 
 
 def evaluate_model_on_data(
-        loaded_model,
-        val_tuple,
-        output_dir,
-        model_name="simple_sample_grid",
-        max_samples=10,
-        label_map=None,
-        dataset_name=None,
+    loaded_model,
+    val_tuple,
+    output_dir,
+    model_name="simple_sample_grid",
+    max_samples=10,
+    label_map=None,
+    dataset_name=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
     if len(X_val) == 0:
         return
+
+    expected_rank = None
+    try:
+        if hasattr(loaded_model, "input_shape") and loaded_model.input_shape is not None:
+            expected_rank = len(loaded_model.input_shape)
+    except Exception:
+        expected_rank = None
+
+    if expected_rank == 5 and hasattr(X_val, "ndim") and X_val.ndim == 4:
+        X_val = np.expand_dims(X_val, axis=1)
+    elif expected_rank == 4 and hasattr(X_val, "ndim") and X_val.ndim == 5:
+        X_val = X_val[:, X_val.shape[1] // 2]
 
     all_predictions = loaded_model.predict(X_val, verbose=0)
 

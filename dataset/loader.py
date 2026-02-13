@@ -11,11 +11,11 @@ CACHE_VERSION = "video_v5"
 
 
 def load_data(
-        input_dir,
-        input_flag="devemo",
-        seed=42,
-        cache_dir="input/.cache",
-        no_cache=False,
+    input_dir,
+    input_flag="devemo",
+    seed=42,
+    cache_dir="input/.cache",
+    no_cache=False,
 ):
     os.makedirs(cache_dir, exist_ok=True)
     cache_input_name = input_flag.replace("+", "plus")

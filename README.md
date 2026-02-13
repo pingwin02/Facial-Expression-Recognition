@@ -16,6 +16,50 @@ pip install -r requirements.txt && \
 conda install -c conda-forge libstdcxx-ng gcc_linux-64 gxx_linux-64 -y
 ```
 
+## Running the project
+
+Before running, activate environment and enter project directory:
+
+```bash
+conda activate fer
+cd Facial-Expression-Recognition
+```
+
+### Option 1: Run directly with Python (`main.py`)
+
+Train:
+
+```bash
+python main.py --input devemo+ --mode train --epochs 100 --model TransferModel
+```
+
+Evaluate:
+
+```bash
+python main.py --input devemo+ --mode eval --model TransferModel
+```
+
+Useful values:
+
+- `--input`: `devemo`, `devemo+`, `fer2013`
+- `--model`: `TransferModel`, `BinaryModel`
+
+### Option 2: Run with bash script (`train_eval.sh`)
+
+The script runs both phases (`train` then `eval`) and supports menu index selection.
+
+Example (TransferModel + devemo+):
+
+```bash
+./train_eval.sh -m 1 -i 0
+```
+
+Parameters:
+
+- `-e` epochs (default `100`)
+- `-m` model index from menu
+- `-i` input index from menu
+
 ## Useful commands
 
 - **Run script in background**: To run a script in the background, you can use the `nohup` command:

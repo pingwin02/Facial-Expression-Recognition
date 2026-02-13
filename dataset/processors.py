@@ -206,12 +206,12 @@ def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=
 
 
 def process_video_sequences(
-        df,
-        video_dir,
-        filename_col,
-        label_map,
-        sequence_length=8,
-        max_candidates=90,
+    df,
+    video_dir,
+    filename_col,
+    label_map,
+    sequence_length=8,
+    max_candidates=90,
 ):
     X, y, debugs = [], [], []
     detector_pack = get_dlib_detector_predictor()
@@ -247,7 +247,7 @@ def process_video_sequences(
                 continue
 
             quality, prev_gray = _frame_quality_score(frame, prev_gray)
-            temporal_weight = float(np.exp(-((float(frame_idx) - center_idx) ** 2) / (2.0 * (sigma ** 2))))
+            temporal_weight = float(np.exp(-((float(frame_idx) - center_idx) ** 2) / (2.0 * (sigma**2))))
             quality_values.append((int(frame_idx), float(quality)))
             temporal_values.append((int(frame_idx), temporal_weight))
 

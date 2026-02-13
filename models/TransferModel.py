@@ -40,12 +40,16 @@ class TransferModel:
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Dropout(0.25))(x)
 
-        x = layers.Bidirectional(layers.GRU(128, return_sequences=True, dropout=0.2, recurrent_dropout=0.0))(x)
+        timesteps = int(input_shape[0]) if isinstance(input_shape, tuple) and len(input_shape) > 0 else None
+        if timesteps == 1:
+            x = layers.Flatten(name="single_frame_pool")(x)
+        else:
+            x = layers.Bidirectional(layers.GRU(128, return_sequences=True, dropout=0.2, recurrent_dropout=0.0))(x)
 
-        attn = layers.Dense(1, activation="tanh", name="temporal_attention_logits")(x)
-        attn = layers.Softmax(axis=1, name="temporal_attention_weights")(attn)
-        x = layers.Dot(axes=1, name="temporal_attention_pool")([attn, x])
-        x = layers.Flatten()(x)
+            attn = layers.Dense(1, activation="tanh", name="temporal_attention_logits")(x)
+            attn = layers.Softmax(axis=1, name="temporal_attention_weights")(attn)
+            x = layers.Dot(axes=1, name="temporal_attention_pool")([attn, x])
+            x = layers.Flatten()(x)
 
         x = layers.BatchNormalization()(x)
         x = layers.Dropout(0.4)(x)
@@ -154,6 +158,11 @@ class TransferModel:
         X_train = cls._prepare_inputs(X_train)
         X_val = cls._prepare_inputs(X_val)
 
+        if X_train.ndim == 4:
+            X_train = np.expand_dims(X_train, axis=1)
+        if X_val.ndim == 4:
+            X_val = np.expand_dims(X_val, axis=1)
+
         y_train_original = np.asarray(y_train)
 
         if X_train.ndim == 5:
@@ -232,6 +241,8 @@ class TransferModel:
 
     def predict(self, images_np):
         images_np = self._prepare_inputs(images_np)
+        if images_np.ndim == 4:
+            images_np = np.expand_dims(images_np, axis=1)
         return np.argmax(self.model.predict(images_np, verbose=0), axis=1)
 
     @classmethod

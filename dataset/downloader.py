@@ -129,7 +129,8 @@ def _label_distribution_from_image_folders(root_dir):
         if not os.path.isdir(label_path):
             continue
         label_counts[label] = sum(
-            1 for entry in os.listdir(label_path) if os.path.isfile(os.path.join(label_path, entry)))
+            1 for entry in os.listdir(label_path) if os.path.isfile(os.path.join(label_path, entry))
+        )
 
     return _build_distribution_result(label_counts)
 
@@ -155,8 +156,9 @@ def _load_label_distribution(dataset_name, dataset_path):
     if source is not None:
         source_path = os.path.join(dataset_path, source["path"])
         if source["kind"] == "json":
-            return _label_distribution_from_json(source_path, label_key=source["label_key"],
-                                                 item_key=source["item_key"])
+            return _label_distribution_from_json(
+                source_path, label_key=source["label_key"], item_key=source["item_key"]
+            )
         return _label_distribution_from_csv(
             source_path,
             delimiter=source.get("delimiter", ","),
