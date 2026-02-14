@@ -41,8 +41,8 @@ python main.py --input devemo+ --mode eval --model TransferModel
 
 Useful values:
 
-- `--input`: `devemo`, `devemo+`, `fer2013`
-- `--model`: `TransferModel`, `BinaryModel`
+- `--input`: `devemo`, `devemo+`, `fer2013` and other
+- `--model`: `TransferModel`, `BinaryModel` and other
 
 ### Option 2: Run with bash script (`train_eval.sh`)
 

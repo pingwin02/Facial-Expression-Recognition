@@ -17,7 +17,11 @@ def main():
     parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"], help="Mode")
     parser.add_argument("--epochs", type=int, default=None, help="Number of epochs (train mode only)")
     parser.add_argument(
-        "--input", type=str, required=True, choices=["devemo", "devemo+", "fer2013"], help="Input format/folder"
+        "--input",
+        type=str,
+        required=True,
+        choices=["devemo", "devemo+", "fer2013", "veatic"],
+        help="Input format/folder",
     )
     parser.add_argument("--no-cache", action="store_true", help="Disable caching")
     args = parser.parse_args()

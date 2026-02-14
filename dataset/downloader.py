@@ -1,9 +1,13 @@
 import csv
+import html as html_lib
 import json
 import os
+import re
 import shutil
+import urllib.parse
 import urllib.request
 import zipfile
+from http.cookiejar import CookieJar
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -13,6 +17,7 @@ def _dataset_is_ready(dataset_path, dataset_name):
         "fer2013": ["train", "test"],
         "devemo": ["_clips_info.csv"],
         "devemo+": ["devemo+.json"],
+        "veatic": ["videos", "rating_averaged"],
     }
     if dataset_name not in required_paths:
         return False
@@ -21,6 +26,33 @@ def _dataset_is_ready(dataset_path, dataset_name):
 
 def _normalize_extracted_layout(dataset_path, required_marker):
     if not os.path.exists(dataset_path):
+        return
+
+    if not required_marker:
+        while True:
+            entries = [entry for entry in os.listdir(dataset_path) if not entry.startswith("!")]
+            if len(entries) != 1:
+                break
+
+            only_entry = entries[0]
+            only_path = os.path.join(dataset_path, only_entry)
+            if not os.path.isdir(only_path):
+                break
+
+            for nested in os.listdir(only_path):
+                src = os.path.join(only_path, nested)
+                dst = os.path.join(dataset_path, nested)
+                if os.path.exists(dst):
+                    continue
+                shutil.move(src, dst)
+            if os.path.isdir(only_path) and not os.listdir(only_path):
+                os.rmdir(only_path)
+
+        for root, dirs, _ in os.walk(dataset_path, topdown=False):
+            for directory in dirs:
+                directory_path = os.path.join(root, directory)
+                if os.path.isdir(directory_path) and not os.listdir(directory_path):
+                    os.rmdir(directory_path)
         return
 
     marker_path = os.path.join(dataset_path, required_marker)
@@ -194,10 +226,113 @@ def _write_dataset_details_json(dataset_name, dataset_path, download_url, archiv
     print(f"Saved dataset details to {details_path}")
 
 
+def _extract_drive_file_id(url):
+    patterns = [r"/d/([a-zA-Z0-9_-]+)", r"id=([a-zA-Z0-9_-]+)"]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _print_progress(prefix, downloaded, total_size):
+    if total_size and total_size > 0:
+        pct = min(100.0, (downloaded * 100.0) / total_size)
+        print(f"\r{prefix}: {pct:6.2f}% ({downloaded / (1024**2):.1f}/{total_size / (1024**2):.1f} MB)", end="")
+    else:
+        print(f"\r{prefix}: {downloaded / (1024**2):.1f} MB", end="")
+
+
+def _stream_response_to_file(response, destination_path, prefix):
+    total_size = response.headers.get("Content-Length")
+    total_size = int(total_size) if total_size and str(total_size).isdigit() else None
+
+    downloaded = 0
+    chunk_size = 1024 * 1024
+
+    with open(destination_path, "wb") as f:
+        while True:
+            chunk = response.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+            _print_progress(prefix, downloaded, total_size)
+    print()
+
+
+def _extract_drive_confirm_request(html_text):
+    form_match = re.search(r'<form[^>]*action="([^"]+)"[^>]*>', html_text)
+    if not form_match:
+        return None, None
+
+    action = html_lib.unescape(form_match.group(1))
+    inputs = re.findall(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"[^>]*>', html_text)
+
+    params = {}
+    for name, value in inputs:
+        params[name] = html_lib.unescape(value)
+
+    return action, params
+
+
+def _download_google_drive_file(drive_url, destination_path):
+    file_id = _extract_drive_file_id(drive_url)
+    if not file_id:
+        raise RuntimeError(f"Could not extract Google Drive file id from URL: {drive_url}")
+
+    cookie_jar = CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    initial_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    req = urllib.request.Request(initial_url, headers=headers)
+
+    with opener.open(req) as resp:
+        content_type = (resp.headers.get("Content-Type") or "").lower()
+        if "text/html" not in content_type:
+            _stream_response_to_file(resp, destination_path, prefix="Downloading")
+            return
+
+        html_text = resp.read().decode("utf-8", errors="ignore")
+
+    action, params = _extract_drive_confirm_request(html_text)
+    if not action or not params:
+        snippet = html_text[:400].replace("\n", " ")
+        raise RuntimeError(f"Failed to parse Google Drive confirm page. Response starts with: {snippet}")
+
+    if action.startswith("/"):
+        action = urllib.parse.urljoin("https://drive.google.com", action)
+
+    confirm_url = f"{action}?{urllib.parse.urlencode(params)}"
+    confirm_req = urllib.request.Request(confirm_url, headers=headers)
+
+    with opener.open(confirm_req) as resp:
+        content_type = (resp.headers.get("Content-Type") or "").lower()
+        if "text/html" in content_type:
+            html_text = resp.read().decode("utf-8", errors="ignore")
+            snippet = html_text[:400].replace("\n", " ")
+            raise RuntimeError(f"Google Drive returned HTML instead of archive. Response starts with: {snippet}")
+        _stream_response_to_file(resp, destination_path, prefix="Downloading")
+
+
+def _download_archive(download_url, dataset_zip):
+    if "drive.google.com" not in str(download_url):
+        with urllib.request.urlopen(download_url) as resp:
+            _stream_response_to_file(resp, dataset_zip, prefix="Downloading")
+        return
+
+    _download_google_drive_file(download_url, dataset_zip)
+
+
 def _download_and_extract(dataset_name, download_url, archive_name, dataset_path, required_marker):
     downloads_dir = "downloads"
     os.makedirs(downloads_dir, exist_ok=True)
     dataset_zip = os.path.join(downloads_dir, archive_name)
+
+    if os.path.exists(dataset_zip) and not zipfile.is_zipfile(dataset_zip):
+        print(f"Existing archive is not a valid zip: {dataset_zip}. Re-downloading...")
+        os.remove(dataset_zip)
 
     if not os.path.exists(dataset_zip):
         if not download_url:
@@ -206,12 +341,23 @@ def _download_and_extract(dataset_name, download_url, archive_name, dataset_path
             )
         print(f"Downloading {dataset_name} dataset...")
         print(f"Downloading {dataset_zip}...")
-        urllib.request.urlretrieve(download_url, dataset_zip)
+        _download_archive(download_url, dataset_zip)
         print("Download complete.")
 
-    print(f"Extracting {dataset_name} dataset...")
-    with zipfile.ZipFile(dataset_zip, "r") as zip_ref:
-        zip_ref.extractall(dataset_path)
+    for attempt in range(2):
+        try:
+            print(f"Extracting {dataset_name} dataset...")
+            with zipfile.ZipFile(dataset_zip, "r") as zip_ref:
+                zip_ref.extractall(dataset_path)
+            break
+        except zipfile.BadZipFile:
+            if attempt == 1 or not download_url:
+                raise
+            print(f"Archive is corrupted or not a zip: {dataset_zip}. Re-downloading once...")
+            if os.path.exists(dataset_zip):
+                os.remove(dataset_zip)
+            _download_archive(download_url, dataset_zip)
+            print("Download complete.")
 
     _normalize_extracted_layout(dataset_path, required_marker)
     _write_dataset_details_json(
@@ -242,6 +388,11 @@ def ensure_dataset(input_dir, dataset_name):
             "url": "https://zenodo.org/records/17214691/files/devemo+.zip?download=1",
             "archive": "devemo_plus.zip",
             "marker": "devemo+.json",
+        },
+        "veatic": {
+            "url": "https://drive.google.com/file/d/1HZIw8RGsRwwENhJlhNJRL88YyfiE442N/view",
+            "archive": "veatic.zip",
+            "marker": None,
         },
     }
 

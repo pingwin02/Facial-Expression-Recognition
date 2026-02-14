@@ -40,6 +40,12 @@ def load_data(
     print(f"Loading {input_flag} dataset...")
     np.random.seed(seed)
 
+    if input_flag == "veatic":
+        raise NotImplementedError(
+            "VEATIC download/extract is supported, but load_data for VEATIC is not implemented yet. "
+            "This dataset provides continuous valence/arousal annotations and requires a dedicated preprocessing pipeline."
+        )
+
     if input_flag == "fer2013":
         train_dir = os.path.join(input_dir, "fer2013", "train")
         test_dir = os.path.join(input_dir, "fer2013", "test")
