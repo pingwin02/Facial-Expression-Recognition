@@ -1,0 +1,82 @@
+import json
+import os
+import pandas as pd
+
+from dataset.processors import process_video_sequences
+from dataset.sources.base_source import DatasetSource
+from dataset.utils import label_distribution_from_csv, label_distribution_from_json, split_data
+
+
+class DevemoSource(DatasetSource):
+    def __init__(self, input_dir, plus_variant=False):
+        super().__init__(input_dir)
+        self.plus_variant = plus_variant
+
+    @property
+    def dataset_name(self):
+        return "devemo+" if self.plus_variant else "devemo"
+
+    @property
+    def archive_name(self):
+        return "devemo_plus.zip" if self.plus_variant else "devemo.zip"
+
+    @property
+    def download_url(self):
+        if self.plus_variant:
+            return "https://zenodo.org/records/17214691/files/devemo+.zip?download=1"
+        return None
+
+    @property
+    def required_marker(self):
+        return "devemo+.json" if self.plus_variant else "_clips_info.csv"
+
+    @property
+    def required_paths(self):
+        return ["devemo+.json"] if self.plus_variant else ["_clips_info.csv"]
+
+    def label_distribution(self):
+        if self.plus_variant:
+            json_path = os.path.join(self.dataset_path, "devemo+.json")
+            return label_distribution_from_json(json_path, label_key="label", item_key="filename")
+
+        csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
+        return label_distribution_from_csv(csv_path, delimiter=";", label_key="label", item_key="file")
+
+    def _build_dataframe(self):
+        if self.plus_variant:
+            json_path = os.path.join(self.dataset_path, "devemo+.json")
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            df = pd.DataFrame(data)
+            df["label"] = df["label"].str.lower()
+            return df, self.dataset_path, "participant", "filename"
+
+        csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
+        df = pd.read_csv(csv_path, sep=";")
+        df["label"] = df["label"].str.lower()
+        return df, self.dataset_path, "id_examined", "file"
+
+    def load(self, seed=42):
+        df, video_dir, id_col, filename_col = self._build_dataframe()
+
+        train_df, val_df = split_data(df, id_col, seed=seed)
+        label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
+
+        X_train, y_train, train_debugs = process_video_sequences(
+            train_df,
+            video_dir,
+            filename_col,
+            label_map,
+            sequence_length=8,
+            max_candidates=90,
+        )
+        X_val, y_val, val_debugs = process_video_sequences(
+            val_df,
+            video_dir,
+            filename_col,
+            label_map,
+            sequence_length=8,
+            max_candidates=90,
+        )
+
+        return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map
