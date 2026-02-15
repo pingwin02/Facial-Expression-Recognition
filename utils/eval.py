@@ -112,13 +112,13 @@ def _evaluate_video_level(predictions, y_labels, debug_infos, is_binary):
 
 
 def evaluate_model_on_data(
-    loaded_model,
-    val_tuple,
-    output_dir,
-    model_name="simple_sample_grid",
-    max_samples=10,
-    label_map=None,
-    dataset_name=None,
+        loaded_model,
+        val_tuple,
+        output_dir,
+        model_name="simple_sample_grid",
+        max_samples=10,
+        label_map=None,
+        dataset_name=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
