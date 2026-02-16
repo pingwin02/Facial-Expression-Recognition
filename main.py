@@ -55,7 +55,14 @@ def main():
     if args.mode == "eval":
         if args.epochs is not None:
             print("Warning: --epochs argument is ignored in eval mode.")
-        model.eval((X_val, y_val, val_debugs), OUTPUT_DIR, label_map=label_map, dataset_name=args.input)
+        dataset_path = os.path.join(INPUT_DIR, args.input)
+        model.eval(
+            (X_val, y_val, val_debugs),
+            OUTPUT_DIR,
+            label_map=label_map,
+            dataset_name=args.input,
+            dataset_path=dataset_path,
+        )
 
 
 if __name__ == "__main__":

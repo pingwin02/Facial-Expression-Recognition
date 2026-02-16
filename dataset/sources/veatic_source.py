@@ -57,7 +57,7 @@ def label_distribution_from_veatic(dataset_path):
         if not filename.endswith("_arousal.csv"):
             continue
 
-        video_id = filename[:-len("_arousal.csv")]
+        video_id = filename[: -len("_arousal.csv")]
         arousal_path = os.path.join(rating_dir, f"{video_id}_arousal.csv")
         valence_path = os.path.join(rating_dir, f"{video_id}_valence.csv")
 
@@ -113,7 +113,7 @@ class VEATICSource(DatasetSource):
             if not filename.endswith("_arousal.csv"):
                 continue
 
-            video_id = filename[:-len("_arousal.csv")]
+            video_id = filename[: -len("_arousal.csv")]
             arousal_path = os.path.join(rating_dir, f"{video_id}_arousal.csv")
             valence_path = os.path.join(rating_dir, f"{video_id}_valence.csv")
             video_filename = f"{video_id}.mp4"
@@ -133,6 +133,7 @@ class VEATICSource(DatasetSource):
                 continue
 
             label = veatic_quadrant_label(center_arousal, center_valence, threshold=0.0)
+
             rows.append(
                 {
                     "video_id": video_id,
@@ -140,15 +141,23 @@ class VEATICSource(DatasetSource):
                     "label": label,
                     "center_mean_arousal": center_arousal,
                     "center_mean_valence": center_valence,
+                    "full_arousal_sequence": arousal_values,
+                    "full_valence_sequence": valence_values,
+                    "arousal_path": arousal_path,
+                    "valence_path": valence_path,
                 }
             )
 
         df = pd.DataFrame(rows)
         if not df.empty:
             state_counts = Counter(df["label"].tolist())
-            print("VEATIC derived states (center-window means):")
+            print("VEATIC quadrant classification (threshold=0.0):")
             for state_name, count in sorted(state_counts.items()):
                 print(f"  {state_name}: {count}")
+            arousal_vals = np.array([row["center_mean_arousal"] for _, row in df.iterrows()])
+            valence_vals = np.array([row["center_mean_valence"] for _, row in df.iterrows()])
+            print(f"  Arousal range: [{np.min(arousal_vals):.3f}, {np.max(arousal_vals):.3f}]")
+            print(f"  Valence range: [{np.min(valence_vals):.3f}, {np.max(valence_vals):.3f}]")
 
         return df, video_dir
 

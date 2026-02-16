@@ -3,17 +3,20 @@
 EPOCHS=100
 MODEL_INDEX_ARG=""
 INPUT_INDEX_ARG=""
+MODE_ARG=""
 
 usage() {
-    echo "Usage: $0 [-e epochs] [-m model_index] [-i input_index]"
+    echo "Usage: $0 [-e epochs] [-m model_index] [-i input_index] [-M mode]"
     echo "  -m and -i accept numeric menu indices."
+    echo "  -M accepts: train, eval, or both (default: both)"
 }
 
-while getopts "e:m:i:" opt; do
+while getopts "e:m:i:M:" opt; do
     case $opt in
         e) EPOCHS=$OPTARG ;;
         m) MODEL_INDEX_ARG=$OPTARG ;;
         i) INPUT_INDEX_ARG=$OPTARG ;;
+        M) MODE_ARG=$OPTARG ;;
         *) usage; exit 1 ;;
     esac
 done
@@ -89,7 +92,16 @@ SELECTED_INPUT_OPTION=${INPUT_OPTIONS[$INPUT_INDEX]}
 INPUTS_TO_RUN=("${REAL_INPUTS[@]}")
 [[ "$SELECTED_INPUT_OPTION" != "All inputs" ]] && INPUTS_TO_RUN=("$SELECTED_INPUT_OPTION")
 
-for MODE in train eval; do
+if [ -z "$MODE_ARG" ] || [ "$MODE_ARG" == "both" ]; then
+    MODES_TO_RUN=("train" "eval")
+elif [ "$MODE_ARG" == "train" ] || [ "$MODE_ARG" == "eval" ]; then
+    MODES_TO_RUN=("$MODE_ARG")
+else
+    echo "Error: Invalid mode '$MODE_ARG'. Use 'train', 'eval', or 'both'."
+    exit 1
+fi
+
+for MODE in "${MODES_TO_RUN[@]}"; do
     for INPUT_NAME in "${INPUTS_TO_RUN[@]}"; do
         for MODEL in "${MODELS_TO_RUN[@]}"; do
             python main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL"

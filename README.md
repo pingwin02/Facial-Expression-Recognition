@@ -59,6 +59,7 @@ Parameters:
 - `-e` epochs (default `100`)
 - `-m` model index from menu
 - `-i` input index from menu
+- `-M` mode: `train`, `eval` or `both` (default `both`)
 
 ## Useful commands
 

@@ -181,19 +181,15 @@ class TransferModel:
         input_shape = X_train.shape[1:]
 
         model = cls(input_shape=input_shape, num_classes=num_classes)
-        warmup_epochs = min(max(4, epochs // 8), 10)
+        warmup_epochs = min(max(5, epochs // 10), 15)
         warmup_epochs = min(warmup_epochs, max(1, epochs))
 
         model.set_fine_tune_layers(trainable_backbone_layers=0)
-        model.compile(learning_rate=3e-4, loss="sparse_categorical_crossentropy")
+        model.compile(learning_rate=5e-4, loss="sparse_categorical_crossentropy")
 
         model.model.summary()
 
-        early_stopping = callbacks.EarlyStopping(
-            monitor="val_loss", patience=12, restore_best_weights=True, mode="min", verbose=1
-        )
-
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.3, patience=5, min_lr=1e-7, verbose=1)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=8, min_lr=1e-7, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
             model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
@@ -222,7 +218,7 @@ class TransferModel:
                 initial_epoch=warmup_epochs,
                 epochs=epochs,
                 batch_size=8,
-                callbacks=[early_stopping, reduce_lr, save_best],
+                callbacks=[reduce_lr, save_best],
                 sample_weight=sample_weights,
             )
 
@@ -246,7 +242,7 @@ class TransferModel:
         return np.argmax(self.model.predict(images_np, verbose=0), axis=1)
 
     @classmethod
-    def eval(cls, val_tuple, output_dir, label_map=None, dataset_name=None):
+    def eval(cls, val_tuple, output_dir, label_map=None, dataset_name=None, dataset_path=None):
         model_prefix = cls.__name__.lower()
 
         loaded_model = find_and_load_model(model_prefix)
@@ -261,4 +257,5 @@ class TransferModel:
             model_name=cls.__name__,
             label_map=label_map,
             dataset_name=dataset_name,
+            dataset_path=dataset_path,
         )

@@ -154,6 +154,16 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
         pred_name = class_map.get(pred, str(pred))
         label_name = class_map.get(label, str(label))
         ax.set_title(f"actual: {label_name}\npredicted: {pred_name}", fontsize=8)
+        if debug and isinstance(debug, dict) and debug.get("video"):
+            ax.text(
+                0.5,
+                -0.08,
+                f"video: {debug['video']}",
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=7,
+            )
         ax.axis("off")
 
     for idx in range(n, rows * cols):
