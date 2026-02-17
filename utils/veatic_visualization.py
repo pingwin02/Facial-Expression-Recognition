@@ -324,10 +324,6 @@ def create_veatic_visualizations(
         if not video_name or video_name in processed_videos:
             continue
 
-        # If selected_videos specified, only generate timelines for those videos
-        if selected_videos is not None and video_name not in selected_videos:
-            continue
-
         video_id = video_name.replace(".mp4", "")
         arousal_path = os.path.join(dataset_path, "rating_averaged", f"{video_id}_arousal.csv")
         valence_path = os.path.join(dataset_path, "rating_averaged", f"{video_id}_valence.csv")
@@ -350,7 +346,14 @@ def create_veatic_visualizations(
         arousal_vals.append(np.mean(arousal_seq))
         valence_vals.append(np.mean(valence_seq))
 
-        if sample_count < max_samples:
+        # Determine if timeline should be generated
+        should_generate_timeline = False
+        if selected_videos is not None:
+            should_generate_timeline = video_name in selected_videos
+        else:
+            should_generate_timeline = sample_count < max_samples
+
+        if should_generate_timeline:
             selected_frames = debug.get("frames", [])
             selected_frame_preds = {}
             selected_frame_true = {}
