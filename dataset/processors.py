@@ -69,6 +69,12 @@ def _frame_quality_score(frame, prev_gray):
     return score, gray
 
 
+def _has_face_detected(frame, detector):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = detector(gray, 1)
+    return len(faces) == 1
+
+
 def _select_diverse_top_indices(scored_indices, target_count, total_frames):
     if not scored_indices:
         return []
@@ -150,6 +156,7 @@ def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=
             continue
 
         candidate_indices = _build_candidate_indices(total_frames, max_candidates=max_candidates)
+        detector, _ = detector_pack
         scored_candidates = []
         prev_gray = None
 
@@ -160,6 +167,10 @@ def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=
                 continue
 
             score, prev_gray = _frame_quality_score(frame, prev_gray)
+            has_face = _has_face_detected(frame, detector)
+            # Boost score by 50% if face detected to prioritize frames with faces
+            if has_face:
+                score = score * 1.5
             scored_candidates.append((int(frame_idx), score))
 
         frame_indices = _select_diverse_top_indices(scored_candidates, frames_per_video, total_frames)
@@ -236,8 +247,10 @@ def process_video_sequences(
         center_idx = (total_frames - 1) / 2.0
         sigma = max(3.0, total_frames * 0.22)
 
+        detector, _ = detector_pack
         quality_values = []
         temporal_values = []
+        face_detection_values = []
         prev_gray = None
 
         for frame_idx in candidate_indices:
@@ -248,8 +261,11 @@ def process_video_sequences(
 
             quality, prev_gray = _frame_quality_score(frame, prev_gray)
             temporal_weight = float(np.exp(-((float(frame_idx) - center_idx) ** 2) / (2.0 * (sigma**2))))
+            has_face = _has_face_detected(frame, detector)
+
             quality_values.append((int(frame_idx), float(quality)))
             temporal_values.append((int(frame_idx), temporal_weight))
+            face_detection_values.append((int(frame_idx), 1.0 if has_face else 0.0))
 
         if not quality_values:
             cap.release()
@@ -261,11 +277,14 @@ def process_video_sequences(
         q_range = max(1e-6, q_max - q_min)
 
         temporal_lookup = {idx: w for idx, w in temporal_values}
+        face_detection_lookup = {idx: w for idx, w in face_detection_values}
         scored_candidates = []
         for frame_idx, quality in quality_values:
             quality_norm = float((quality - q_min) / q_range)
             center_w = float(temporal_lookup.get(frame_idx, 0.0))
-            fused_score = (0.45 * quality_norm) + (0.55 * center_w)
+            face_w = float(face_detection_lookup.get(frame_idx, 0.0))
+            # Scoring: 35% quality, 40% temporal position, 25% face detection
+            fused_score = (0.35 * quality_norm) + (0.40 * center_w) + (0.25 * face_w)
             scored_candidates.append((int(frame_idx), fused_score))
 
         frame_indices = _select_diverse_top_indices(scored_candidates, sequence_length, total_frames)

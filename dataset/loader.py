@@ -5,7 +5,7 @@ import pickle
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-CACHE_VERSION = "video_v8_quadrant"
+CACHE_VERSION = "video_v9_face_score"
 
 
 def load_data(
