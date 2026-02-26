@@ -130,118 +130,146 @@ def plot_veatic_frame_label_timeline(arousal_seq, valence_seq, video_name, outpu
 def plot_veatic_timeline(
     arousal_seq,
     valence_seq,
-    true_label,
-    pred_label,
     video_name,
     selected_frames=None,
-    selected_frame_preds=None,
-    selected_frame_true=None,
+    selected_frame_correct=None,
+    showcase_frames=None,
     output_path=None,
     threshold=0.0,
 ):
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(18, 10))
+    fig, ax = plt.subplots(figsize=(18, 6))
 
-    frames = np.arange(len(arousal_seq))
+    n = min(len(arousal_seq), len(valence_seq))
+    if n == 0:
+        return
 
-    true_arousal_mean = np.mean(arousal_seq)
-    true_valence_mean = np.mean(valence_seq)
-    pred_code = get_quadrant_code(pred_label)
-    pred_color = get_quadrant_color(pred_label)
+    frames = np.arange(n)
+    arousal_seq = np.asarray(arousal_seq[:n], dtype=np.float32)
+    valence_seq = np.asarray(valence_seq[:n], dtype=np.float32)
 
-    # Arousal plot
-    ax1.plot(frames, arousal_seq, "b-", linewidth=1.5, alpha=0.7, label="Arousal per frame")
-    ax1.axhline(
-        y=true_arousal_mean, color="b", linestyle="--", linewidth=2.5, label=f"Mean Arousal: {true_arousal_mean:.3f}"
-    )
-    ax1.axhline(y=threshold, color="gray", linestyle=":", linewidth=2, label=f"Threshold: {threshold}")
+    ax.plot(frames, arousal_seq, color="#1f77b4", linewidth=1.6, alpha=0.85, label="Arousal")
+    ax.plot(frames, valence_seq, color="#8e44ad", linewidth=1.6, alpha=0.85, label="Valence")
+    ax.axhline(y=threshold, color="gray", linestyle=":", linewidth=2, label=f"Threshold: {threshold}")
 
-    marker_edges = None
-    if selected_frames is not None and len(selected_frames) > 0:
-        selected_arousal = [arousal_seq[f] if f < len(arousal_seq) else 0 for f in selected_frames]
-        marker_edges = []
-        for frame_idx in selected_frames:
-            pred_name = selected_frame_preds.get(frame_idx) if selected_frame_preds else None
-            true_name = selected_frame_true.get(frame_idx) if selected_frame_true else None
-            marker_edges.append("green" if pred_name and true_name and pred_name == true_name else "red")
-
-        ax1.scatter(
-            selected_frames,
-            selected_arousal,
-            color="#f39c12",
-            s=120,
-            zorder=5,
-            marker="o",
-            edgecolors=marker_edges,
-            linewidths=2,
-            label="Frames fed to model",
-        )
-
-        # Per-frame labels removed by request
-
-    ax1.set_ylabel("Arousal", fontsize=13, fontweight="bold")
-    ax1.set_xlabel("Frame Index", fontsize=12)
-    ax1.set_title(f"Video: {video_name} - Arousal Over Time", fontsize=15, fontweight="bold")
-    handles, labels = ax1.get_legend_handles_labels()
-    ax1.legend(handles=handles, loc="upper left", fontsize=10, framealpha=0.9)
-    ax1.grid(True, alpha=0.3)
-    ax1.set_ylim(-1.1, 1.1)
-
-    # Valence plot
-    ax2.plot(frames, valence_seq, "g-", linewidth=1.5, alpha=0.7, label="Valence per frame")
-    ax2.axhline(
-        y=true_valence_mean, color="g", linestyle="--", linewidth=2.5, label=f"Mean Valence: {true_valence_mean:.3f}"
-    )
-    ax2.axhline(y=threshold, color="gray", linestyle=":", linewidth=2, label=f"Threshold: {threshold}")
+    selected_accuracy_text = "n/a"
+    showcase_frames = set(showcase_frames or [])
 
     if selected_frames is not None and len(selected_frames) > 0:
-        selected_valence = [valence_seq[f] if f < len(valence_seq) else 0 for f in selected_frames]
-        ax2.scatter(
-            selected_frames,
-            selected_valence,
-            color="#f39c12",
-            s=120,
-            zorder=5,
-            marker="o",
-            edgecolors=marker_edges if marker_edges is not None else "#d35400",
-            linewidths=2,
-            label="Frames fed to model",
-        )
+        selected_frames = sorted({int(frame) for frame in selected_frames if 0 <= int(frame) < n})
+        if selected_frames:
+            correct_flags = []
+            showcase_flags = []
+            for frame_idx in selected_frames:
+                if selected_frame_correct and frame_idx in selected_frame_correct:
+                    correct_flags.append(bool(selected_frame_correct[frame_idx]))
+                else:
+                    correct_flags.append(False)
+                showcase_flags.append(frame_idx in showcase_frames)
 
-    ax2.set_ylabel("Valence", fontsize=13, fontweight="bold")
-    ax2.set_xlabel("Frame Index", fontsize=12)
-    ax2.set_title(f"Video: {video_name} - Valence Over Time", fontsize=15, fontweight="bold")
-    ax2.legend(loc="upper left", fontsize=10, framealpha=0.9)
-    ax2.grid(True, alpha=0.3)
-    ax2.set_ylim(-1.1, 1.1)
+            for frame_idx, is_correct, is_showcase in zip(selected_frames, correct_flags, showcase_flags):
+                span_color = "#2ecc71" if is_correct else "#ff6b6b"
+                alpha = 0.14 if is_showcase else 0.07
+                ax.axvspan(frame_idx - 0.35, frame_idx + 0.35, color=span_color, alpha=alpha, zorder=1)
 
-    true_code = get_quadrant_code(true_label)
-    true_color = get_quadrant_color(true_label)
-    true_desc = get_quadrant_label(true_label)
-    pred_desc = get_quadrant_label(pred_label)
+            selected_arousal = arousal_seq[selected_frames]
+            selected_valence = valence_seq[selected_frames]
+            edge_colors = ["#1e8449" if is_correct else "#c0392b" for is_correct in correct_flags]
+            marker_sizes = [78 if is_showcase else 52 for is_showcase in showcase_flags]
 
-    fig.text(
-        0.98,
-        0.08,
-        f"True label: {true_code}\n{true_desc}",
-        ha="right",
-        va="bottom",
-        fontsize=9,
+            ax.scatter(
+                selected_frames,
+                selected_arousal,
+                color="#1f77b4",
+                s=marker_sizes,
+                zorder=5,
+                marker="o",
+                edgecolors=edge_colors,
+                linewidths=1.2,
+                label="Frames used in evaluation (Arousal)",
+            )
+            ax.scatter(
+                selected_frames,
+                selected_valence,
+                color="#8e44ad",
+                s=marker_sizes,
+                zorder=5,
+                marker="o",
+                edgecolors=edge_colors,
+                linewidths=1.2,
+                label="Frames used in evaluation (Valence)",
+            )
+
+            if any(showcase_flags):
+                showcase_x = [frame for frame, show in zip(selected_frames, showcase_flags) if show]
+                showcase_arousal = [val for val, show in zip(selected_arousal.tolist(), showcase_flags) if show]
+                showcase_valence = [val for val, show in zip(selected_valence.tolist(), showcase_flags) if show]
+
+                ax.scatter(
+                    showcase_x,
+                    showcase_arousal,
+                    facecolors="none",
+                    edgecolors="#f1c40f",
+                    s=120,
+                    linewidths=1.4,
+                    zorder=6,
+                    label="Example frames",
+                )
+                ax.scatter(
+                    showcase_x,
+                    showcase_valence,
+                    facecolors="none",
+                    edgecolors="#f1c40f",
+                    s=120,
+                    linewidths=1.4,
+                    zorder=6,
+                )
+
+            selected_accuracy = 100.0 * (float(np.sum(correct_flags)) / float(len(correct_flags)))
+            selected_accuracy_text = f"{selected_accuracy:.1f}%"
+
+    ax.set_ylabel("Value", fontsize=12, fontweight="bold")
+    ax.set_xlabel("Frame Index", fontsize=12)
+    video_id = os.path.splitext(os.path.basename(str(video_name)))[0] if video_name else "unknown"
+    ax.set_title(
+        f"Video ID: {video_id} | Accuracy: {selected_accuracy_text} | Arousal & Valence Timeline",
+        fontsize=14,
         fontweight="bold",
-        bbox=dict(boxstyle="round", facecolor=true_color, alpha=0.7, edgecolor="black", linewidth=1),
     )
-
-    fig.text(
-        0.98,
-        0.02,
-        f"Model prediction: {pred_code}\n{pred_desc}",
-        ha="right",
-        va="bottom",
-        fontsize=9,
-        fontweight="bold",
-        bbox=dict(boxstyle="round", facecolor=pred_color, alpha=0.7, edgecolor="black", linewidth=1),
+    ax.set_ylim(-1.1, 1.1)
+    ax.grid(True, alpha=0.3)
+    legend_handles, legend_labels = ax.get_legend_handles_labels()
+    correct_handle = Line2D(
+        [0],
+        [0],
+        marker="o",
+        linestyle="None",
+        markerfacecolor="none",
+        markeredgecolor="#1e8449",
+        markeredgewidth=1.6,
+        markersize=8,
+        label="Correct prediction",
     )
+    incorrect_handle = Line2D(
+        [0],
+        [0],
+        marker="o",
+        linestyle="None",
+        markerfacecolor="none",
+        markeredgecolor="#c0392b",
+        markeredgewidth=1.6,
+        markersize=8,
+        label="Incorrect prediction",
+    )
+    existing_labels = set(legend_labels)
+    if correct_handle.get_label() not in existing_labels:
+        legend_handles.append(correct_handle)
+        legend_labels.append(correct_handle.get_label())
+    if incorrect_handle.get_label() not in existing_labels:
+        legend_handles.append(incorrect_handle)
+        legend_labels.append(incorrect_handle.get_label())
+    ax.legend(legend_handles, legend_labels, loc="upper left", fontsize=10, framealpha=0.9)
 
-    plt.tight_layout(rect=(0, 0.12, 1, 1))
+    plt.tight_layout()
 
     if output_path:
         plt.savefig(output_path, dpi=150, bbox_inches="tight")
@@ -263,7 +291,7 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
 
     # Plot points
     scatter = ax.scatter(
-        valence_vals, arousal_vals, c=colors, s=180, alpha=0.7, edgecolors="black", linewidth=2, zorder=10
+        valence_vals, arousal_vals, c=colors, s=90, alpha=0.55, edgecolors="black", linewidth=1.2, zorder=8
     )
 
     # Draw threshold lines
@@ -276,7 +304,7 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
     ax.set_xlabel("Valence (Unpleasant ← → Pleasant)", fontsize=14, fontweight="bold")
     ax.set_ylabel("Arousal (Low ← → High)", fontsize=14, fontweight="bold")
     ax.set_title(
-        "Arousal-Valence Space: Model Predictions\n(Each dot = one video, color = correct/incorrect)",
+        "Arousal-Valence Space: Model Predictions",
         fontsize=16,
         fontweight="bold",
         pad=20,
@@ -291,6 +319,7 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         va="center",
         fontsize=12,
         fontweight="bold",
+        zorder=30,
         bbox=dict(boxstyle="round", facecolor="#2ecc71", alpha=0.4, edgecolor="black", linewidth=2),
     )
 
@@ -302,6 +331,7 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         va="center",
         fontsize=12,
         fontweight="bold",
+        zorder=30,
         bbox=dict(boxstyle="round", facecolor="#e74c3c", alpha=0.4, edgecolor="black", linewidth=2),
     )
 
@@ -313,6 +343,7 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         va="center",
         fontsize=12,
         fontweight="bold",
+        zorder=30,
         bbox=dict(boxstyle="round", facecolor="#95a5a6", alpha=0.4, edgecolor="black", linewidth=2),
     )
 
@@ -324,6 +355,7 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         va="center",
         fontsize=12,
         fontweight="bold",
+        zorder=30,
         bbox=dict(boxstyle="round", facecolor="#3498db", alpha=0.4, edgecolor="black", linewidth=2),
     )
 
@@ -371,27 +403,35 @@ def create_veatic_visualizations(
     max_samples=10,
     model=None,
     selected_videos=None,
+    selected_sample_indices=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
 
     X_val, y_val, val_debugs = val_data
+    selected_sample_indices = set(selected_sample_indices or [])
 
-    inv_label_map = {v: k for k, v in label_map.items()}
+    frame_arousal_vals = []
+    frame_valence_vals = []
+    frame_true_labels = []
+    frame_pred_labels = []
 
-    arousal_vals = []
-    valence_vals = []
-
-    sample_count = 0
-    frame_label_timeline_created = False
-    processed_videos = set()
-
+    video_groups = {}
     for idx, debug in enumerate(val_debugs):
         if not isinstance(debug, dict):
             continue
-
-        video_name = debug.get("video", "")
-        if not video_name or video_name in processed_videos:
+        video_name = debug.get("video")
+        if not video_name:
             continue
+        video_groups.setdefault(video_name, []).append(idx)
+
+    sample_count = 0
+
+    for video_name, indices in video_groups.items():
+        should_generate_timeline = False
+        if selected_videos is not None:
+            should_generate_timeline = video_name in selected_videos
+        else:
+            should_generate_timeline = sample_count < max_samples
 
         video_id = video_name.replace(".mp4", "")
         arousal_path = os.path.join(dataset_path, "rating_averaged", f"{video_id}_arousal.csv")
@@ -406,91 +446,63 @@ def create_veatic_visualizations(
         if len(arousal_seq) == 0 or len(valence_seq) == 0:
             continue
 
-        true_label_idx = true_labels[idx]
-        pred_label_idx = predictions[idx]
+        selected_frames = []
+        selected_frame_correct = {}
+        showcase_frames = set()
+        for sample_idx in indices:
+            if sample_idx >= len(predictions) or sample_idx >= len(true_labels):
+                continue
+            debug = val_debugs[sample_idx]
 
-        true_label = inv_label_map.get(true_label_idx, "unknown")
-        pred_label = inv_label_map.get(pred_label_idx, "unknown")
+            frame_idx = debug.get("frame_idx") if isinstance(debug, dict) else None
+            if frame_idx is None and isinstance(debug, dict):
+                frames_list = debug.get("frames", [])
+                if isinstance(frames_list, list) and len(frames_list) > 0:
+                    frame_idx = int(frames_list[len(frames_list) // 2])
 
-        arousal_vals.append(np.mean(arousal_seq))
-        valence_vals.append(np.mean(valence_seq))
+            if frame_idx is None:
+                continue
 
-        # Determine if timeline should be generated
-        should_generate_timeline = False
-        if selected_videos is not None:
-            should_generate_timeline = video_name in selected_videos
-        else:
-            should_generate_timeline = sample_count < max_samples
+            frame_idx = int(frame_idx)
+            if frame_idx < 0 or frame_idx >= len(arousal_seq) or frame_idx >= len(valence_seq):
+                continue
 
-        if should_generate_timeline:
-            selected_frames = debug.get("frames", [])
-            selected_frame_preds = {}
-            selected_frame_true = {}
+            selected_frames.append(frame_idx)
+            if sample_idx in selected_sample_indices:
+                showcase_frames.add(frame_idx)
 
-            if model is not None and selected_frames and idx < len(X_val):
-                sequence = X_val[idx]
-                if isinstance(sequence, np.ndarray) and sequence.ndim == 4:
-                    seq_len = sequence.shape[0]
-                    for pos_idx, frame_idx in enumerate(selected_frames):
-                        if pos_idx >= seq_len:
-                            continue
-                        frame = sequence[pos_idx].astype("float32")
-                        if np.max(frame) > 1.0:
-                            frame = frame / 255.0
-                        tiled = np.repeat(frame[np.newaxis, ...], seq_len, axis=0)
-                        batch = np.expand_dims(tiled, axis=0)
-                        preds = model.predict(batch, verbose=0)
-                        pred_idx = int(np.argmax(preds, axis=1)[0])
-                        selected_frame_preds[frame_idx] = inv_label_map.get(pred_idx, str(pred_idx))
+            true_idx = int(true_labels[sample_idx])
+            pred_idx = int(predictions[sample_idx])
+            selected_frame_correct[frame_idx] = bool(true_idx == pred_idx)
 
-            if selected_frames:
-                for frame_idx in selected_frames:
-                    if frame_idx >= len(arousal_seq) or frame_idx >= len(valence_seq):
-                        continue
-                    true_frame_label = get_quadrant_from_av(
-                        float(arousal_seq[frame_idx]),
-                        float(valence_seq[frame_idx]),
-                        threshold=0.0,
-                    )
-                    selected_frame_true[frame_idx] = true_frame_label
+            frame_arousal_vals.append(float(arousal_seq[frame_idx]))
+            frame_valence_vals.append(float(valence_seq[frame_idx]))
+            frame_true_labels.append(true_idx)
+            frame_pred_labels.append(pred_idx)
 
+        if should_generate_timeline and selected_frames:
             output_path = os.path.join(output_dir, f"timeline_{video_id}.png")
             plot_veatic_timeline(
                 arousal_seq,
                 valence_seq,
-                true_label,
-                pred_label,
                 video_name,
                 selected_frames=selected_frames,
-                selected_frame_preds=selected_frame_preds,
-                selected_frame_true=selected_frame_true,
+                selected_frame_correct=selected_frame_correct,
+                showcase_frames=showcase_frames,
                 output_path=output_path,
             )
 
-            if not frame_label_timeline_created:
-                labels_timeline_path = os.path.join(output_dir, f"timeline_labels_{video_id}.png")
-                plot_veatic_frame_label_timeline(
-                    arousal_seq,
-                    valence_seq,
-                    video_name,
-                    output_path=labels_timeline_path,
-                    threshold=0.0,
-                )
-                frame_label_timeline_created = True
-
             sample_count += 1
-            processed_videos.add(video_name)
 
     quadrant_path = os.path.join(output_dir, "arousal_valence_quadrants.png")
-    plot_arousal_valence_quadrants(
-        np.array(arousal_vals),
-        np.array(valence_vals),
-        true_labels[: len(arousal_vals)],
-        predictions[: len(arousal_vals)],
-        output_path=quadrant_path,
-    )
+    if len(frame_arousal_vals) > 0:
+        plot_arousal_valence_quadrants(
+            np.array(frame_arousal_vals, dtype=np.float32),
+            np.array(frame_valence_vals, dtype=np.float32),
+            np.array(frame_true_labels, dtype=np.int32),
+            np.array(frame_pred_labels, dtype=np.int32),
+            output_path=quadrant_path,
+        )
+        print(f"Created quadrant plot: {quadrant_path}")
 
     print(f"\nCreated {sample_count} timeline visualizations in {output_dir}")
-    if frame_label_timeline_created:
-        print("Created 1 frame-label timeline visualization for VEATIC test.")
-    print(f"Created quadrant plot: {quadrant_path}")

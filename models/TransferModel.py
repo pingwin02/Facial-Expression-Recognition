@@ -242,7 +242,7 @@ class TransferModel:
         return np.argmax(self.model.predict(images_np, verbose=0), axis=1)
 
     @classmethod
-    def eval(cls, val_tuple, output_dir, label_map=None, dataset_name=None, dataset_path=None):
+    def eval(cls, val_tuple, output_dir, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
         model_prefix = cls.__name__.lower()
 
         loaded_model = find_and_load_model(model_prefix)
@@ -258,4 +258,5 @@ class TransferModel:
             label_map=label_map,
             dataset_name=dataset_name,
             dataset_path=dataset_path,
+            train_tuple=train_tuple,
         )

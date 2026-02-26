@@ -65,6 +65,7 @@ def main():
             label_map=label_map,
             dataset_name=args.input,
             dataset_path=dataset_path,
+            train_tuple=(X_train, y_train, train_debugs),
         )
 
 

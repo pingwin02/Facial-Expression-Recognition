@@ -1,9 +1,22 @@
 import datetime
 import glob
 import os
+import select
 import shutil
+import sys
 
 import tensorflow as tf
+
+
+def _input_with_timeout(prompt, timeout_seconds=5):
+    print(prompt, end="", flush=True)
+
+    ready, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
+    if not ready:
+        print()
+        return None
+
+    return sys.stdin.readline().strip()
 
 
 def find_and_load_model(model_prefix="SimpleModel"):
@@ -31,8 +44,11 @@ def find_and_load_model(model_prefix="SimpleModel"):
             print(f"[{i}] {path}")
 
         while True:
-            user_input = input(f"\nSelect model index to load (0-{len(candidates) - 1}) [default: 0]: ").strip()
-            if user_input == "":
+            user_input = _input_with_timeout(
+                f"\nSelect model index to load (0-{len(candidates) - 1}) [default: 0, timeout: 5s]: ",
+                timeout_seconds=5,
+            )
+            if user_input is None or user_input == "":
                 index = 0
                 break
 

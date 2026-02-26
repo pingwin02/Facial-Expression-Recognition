@@ -197,6 +197,29 @@ def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
     return next_index, X, y, debugs
 
 
+def _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix):
+    if not checkpoint_dir or not checkpoint_prefix:
+        return
+    if not os.path.isdir(checkpoint_dir):
+        return
+
+    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    removed_count = 0
+
+    for filename in os.listdir(checkpoint_dir):
+        if not pattern.match(filename):
+            continue
+        checkpoint_path = os.path.join(checkpoint_dir, filename)
+        try:
+            os.remove(checkpoint_path)
+            removed_count += 1
+        except OSError:
+            pass
+
+    if removed_count > 0:
+        print(f"Removed {removed_count} checkpoint tmp file(s) for prefix '{checkpoint_prefix}'.")
+
+
 def process_video_frames_with_frame_labels(
     df,
     video_dir,
@@ -273,9 +296,15 @@ def process_video_frames_with_frame_labels(
             cap.release()
             continue
 
-        frame_indices = _select_diverse_top_indices(scored_candidates, frames_per_video, total_frames)
-        if not frame_indices:
-            frame_indices = [idx for idx, _ in scored_candidates[:frames_per_video]]
+        use_all_frames = frames_per_video is None or int(frames_per_video) <= 0
+
+        if use_all_frames:
+            frame_indices = sorted({int(idx) for idx, _ in scored_candidates})
+        else:
+            target_frames = int(frames_per_video)
+            frame_indices = _select_diverse_top_indices(scored_candidates, target_frames, total_frames)
+            if not frame_indices:
+                frame_indices = [idx for idx, _ in scored_candidates[:target_frames]]
 
         frames_collected = 0
         last_sample = None
@@ -331,17 +360,19 @@ def process_video_frames_with_frame_labels(
             last_sample = (combined_img, label, sample_debug)
             frames_collected += 1
 
-        while frames_collected < frames_per_video and last_sample is not None:
-            repeated_img = last_sample[0].copy()
-            repeated_label = int(last_sample[1])
-            repeated_debug = dict(last_sample[2])
-            repeated_debug["is_repeated"] = True
+        if not use_all_frames:
+            target_frames = int(frames_per_video)
+            while frames_collected < target_frames and last_sample is not None:
+                repeated_img = last_sample[0].copy()
+                repeated_label = int(last_sample[1])
+                repeated_debug = dict(last_sample[2])
+                repeated_debug["is_repeated"] = True
 
-            X.append(repeated_img)
-            y.append(repeated_label)
-            debugs.append(repeated_debug)
+                X.append(repeated_img)
+                y.append(repeated_label)
+                debugs.append(repeated_debug)
 
-            frames_collected += 1
+                frames_collected += 1
 
         cap.release()
 
@@ -351,7 +382,7 @@ def process_video_frames_with_frame_labels(
                 print(f"Checkpoint saved: {checkpoint_path}")
 
     if checkpoint_dir and checkpoint_prefix:
-        _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, len(df), X, y, debugs)
+        _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
 
     return np.array(X), np.array(y), debugs
 
@@ -422,7 +453,7 @@ def process_image_directory(
                 print(f"Checkpoint saved: {checkpoint_path}")
 
     if checkpoint_dir and checkpoint_prefix:
-        _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, len(entries), X, y, debugs)
+        _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
 
     return np.array(X), np.array(y), debugs
 
@@ -670,6 +701,6 @@ def process_video_sequences(
                 print(f"Checkpoint saved: {checkpoint_path}")
 
     if checkpoint_dir and checkpoint_prefix:
-        _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, len(df), X, y, debugs)
+        _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
 
     return np.array(X), np.array(y), debugs

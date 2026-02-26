@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import os
 from sklearn.metrics import (
     balanced_accuracy_score,
     precision_recall_fscore_support,
@@ -102,6 +103,92 @@ def _select_correct_video_indices(val_debugs, y_true, y_pred, max_samples):
     return selected
 
 
+def _build_video_to_indices(debugs):
+    groups = {}
+    if not debugs:
+        return groups
+
+    for idx, debug in enumerate(debugs):
+        if not isinstance(debug, dict):
+            continue
+        video_name = debug.get("video")
+        if not video_name:
+            continue
+        groups.setdefault(video_name, []).append(idx)
+    return groups
+
+
+def _expand_indices_per_video(val_debugs, base_video_indices, frames_per_video=10):
+    if not base_video_indices:
+        return []
+
+    video_to_indices = _build_video_to_indices(val_debugs)
+    expanded = []
+    seen_videos = set()
+    rng = np.random.default_rng()
+
+    for base_idx in base_video_indices:
+        if base_idx >= len(val_debugs):
+            continue
+        debug = val_debugs[base_idx]
+        if not isinstance(debug, dict):
+            continue
+        video_name = debug.get("video")
+        if not video_name or video_name in seen_videos:
+            continue
+
+        candidate_indices = video_to_indices.get(video_name, [])
+        if not candidate_indices:
+            continue
+
+        sample_size = min(len(candidate_indices), max(1, int(frames_per_video)))
+        selected_for_video = rng.choice(candidate_indices, size=sample_size, replace=False).tolist()
+        selected_for_video = sorted(
+            selected_for_video,
+            key=lambda idx: (
+                int(val_debugs[idx].get("frame_idx", 10**9)) if isinstance(val_debugs[idx], dict) else 10**9,
+                idx,
+            ),
+        )
+        expanded.extend(selected_for_video)
+        seen_videos.add(video_name)
+
+    return expanded
+
+
+def _read_video_frame_total(dataset_path, video_name):
+    if not dataset_path or not video_name:
+        return None
+
+    video_id, _ = os.path.splitext(video_name)
+    arousal_path = os.path.join(dataset_path, "rating_averaged", f"{video_id}_arousal.csv")
+
+    if not os.path.exists(arousal_path):
+        return None
+
+    count = 0
+    try:
+        with open(arousal_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    count += 1
+    except OSError:
+        return None
+
+    return int(count) if count > 0 else None
+
+
+def _video_sort_key(video_name):
+    if not video_name:
+        return (1, "", 10**9)
+
+    base = os.path.splitext(os.path.basename(str(video_name)))[0]
+    try:
+        return (0, "", int(base))
+    except ValueError:
+        return (1, base.lower(), 10**9)
+
+
 def _collect_metrics_dict(y_true, y_pred, label_map=None):
     labels = sorted(np.unique(np.concatenate([y_true, y_pred])).tolist())
     label_names = _build_label_names(label_map, labels)
@@ -188,6 +275,7 @@ def evaluate_model_on_data(
     label_map=None,
     dataset_name=None,
     dataset_path=None,
+    train_tuple=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -249,7 +337,6 @@ def evaluate_model_on_data(
     )
     print(metrics_text)
 
-    metrics_blocks = [metrics_text]
     metrics_json = {
         "dataset": dataset_name,
         "model": model_name,
@@ -266,13 +353,44 @@ def evaluate_model_on_data(
     )
 
     if dataset_name == "veatic":
-        selected_indices = _select_correct_video_indices(val_debugs, y_val_processed, all_preds_labels, max_samples)
+        selected_video_anchor_indices = _select_correct_video_indices(
+            val_debugs, y_val_processed, all_preds_labels, max_samples
+        )
+        if not selected_video_anchor_indices:
+            selected_video_anchor_indices = _select_unique_video_indices(val_debugs, max_samples)
+        if not selected_video_anchor_indices:
+            selected_video_anchor_indices = np.random.choice(
+                len(X_val), size=min(max_samples, len(X_val)), replace=False
+            ).tolist()
+
+        selected_indices = _expand_indices_per_video(
+            val_debugs,
+            selected_video_anchor_indices,
+            frames_per_video=10,
+        )
         if not selected_indices:
-            selected_indices = _select_unique_video_indices(val_debugs, max_samples)
-        if not selected_indices:
-            selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False)
+            selected_indices = selected_video_anchor_indices
+
+        selected_indices = sorted(
+            selected_indices,
+            key=lambda idx: (
+                _video_sort_key(
+                    val_debugs[idx].get("video")
+                    if idx < len(val_debugs) and isinstance(val_debugs[idx], dict)
+                    else None
+                ),
+                (
+                    int(val_debugs[idx].get("frame_idx", 10**9))
+                    if idx < len(val_debugs) and isinstance(val_debugs[idx], dict)
+                    else 10**9
+                ),
+                int(idx),
+            ),
+        )
     else:
-        selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False)
+        selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False).tolist()
+
+    selected_indices = [int(idx) for idx in selected_indices]
 
     frames_sample = X_val[selected_indices]
     if hasattr(frames_sample, "ndim") and frames_sample.ndim == 5:
@@ -286,13 +404,20 @@ def evaluate_model_on_data(
         class_map_inv = {v: k for k, v in display_map.items()}
 
     debugs_sample = []
+    frame_total_cache = {}
     for i, idx in enumerate(selected_indices):
         debug_info = val_debugs[idx] if val_debugs is not None and idx < len(val_debugs) else None
 
         debug = {"frame_index": int(idx), "predicted_label": int(preds_sample[i]), "true_label": int(labels_sample[i])}
 
         if debug_info and isinstance(debug_info, dict):
-            debug.update({k: debug_info.get(k) for k in ["crop_box", "landmarks", "video"] if k in debug_info})
+            debug.update({k: debug_info.get(k) for k in ["video", "frame_idx"] if k in debug_info})
+
+            video_name = debug.get("video")
+            if video_name:
+                if video_name not in frame_total_cache:
+                    frame_total_cache[video_name] = _read_video_frame_total(dataset_path, video_name)
+                debug["frame_total"] = frame_total_cache[video_name]
 
         if class_map_inv:
             debug["class_map"] = class_map_inv
@@ -308,21 +433,11 @@ def evaluate_model_on_data(
         model_name=model_name,
         dataset_name=dataset_name,
         accuracy=accuracy,
-        filename=f"{model_name}_samples_with_landmarks.png",
-    )
-
-    debugs_no_landmarks = [{k: v for k, v in debug.items() if k != "landmarks"} for debug in debugs_sample]
-
-    save_sample_frames(
-        frames_sample,
-        preds_sample,
-        labels_sample,
-        debugs_no_landmarks,
-        output_dir,
-        model_name=model_name,
-        dataset_name=dataset_name,
-        accuracy=accuracy,
-        filename=f"{model_name}_samples_no_landmarks.png",
+        filename=f"{model_name}_samples.png",
+        highlight_correctness_bg=True,
+        cols=10,
+        group_size=10,
+        show_group_separator=False,
     )
 
     if dataset_name == "veatic" and dataset_path is not None:
@@ -343,12 +458,63 @@ def evaluate_model_on_data(
             dataset_path=dataset_path,
             model=loaded_model,
             selected_videos=selected_videos_from_samples,
+            selected_sample_indices=set(selected_indices),
         )
 
-    metrics_report_path = f"{output_dir}/{model_name}_metrics.txt"
-    with open(metrics_report_path, "w", encoding="utf-8") as f:
-        f.write("\n\n".join(metrics_blocks) + "\n")
-    print(f"Saved metrics report to {metrics_report_path}")
+    example_frames_per_video = {}
+    example_frame_ids_per_video = {}
+    for idx in selected_indices:
+        if idx >= len(val_debugs) or not isinstance(val_debugs[idx], dict):
+            continue
+        debug_item = val_debugs[idx]
+        video_name = debug_item.get("video")
+        if not video_name:
+            continue
+        example_frames_per_video[video_name] = int(example_frames_per_video.get(video_name, 0) + 1)
+        frame_idx = debug_item.get("frame_idx")
+        if frame_idx is not None:
+            example_frame_ids_per_video.setdefault(video_name, []).append(int(frame_idx))
+
+    for video_name in list(example_frame_ids_per_video.keys()):
+        example_frame_ids_per_video[video_name] = sorted(example_frame_ids_per_video[video_name])
+
+    eval_frames_per_video = {}
+    eval_frame_ids_per_video = {}
+    for eval_idx, debug_item in enumerate(val_debugs):
+        if not isinstance(debug_item, dict):
+            continue
+        video_name = debug_item.get("video")
+        if not video_name:
+            continue
+        eval_frames_per_video[video_name] = int(eval_frames_per_video.get(video_name, 0) + 1)
+        frame_idx = debug_item.get("frame_idx")
+        if frame_idx is None:
+            frame_idx = eval_idx
+        eval_frame_ids_per_video.setdefault(video_name, []).append(int(frame_idx))
+
+    for video_name in list(eval_frame_ids_per_video.keys()):
+        eval_frame_ids_per_video[video_name] = sorted(eval_frame_ids_per_video[video_name])
+
+    train_count = None
+    if train_tuple is not None and len(train_tuple) > 0 and train_tuple[0] is not None:
+        try:
+            train_count = int(len(train_tuple[0]))
+        except Exception:
+            train_count = None
+
+    test_count = int(len(X_val))
+    metrics_json["data_summary"] = {
+        "train_samples": train_count,
+        "test_samples": test_count,
+        "evaluation_videos": int(len(eval_frames_per_video)),
+        "evaluation_frames_total": int(sum(eval_frames_per_video.values())),
+        "evaluation_frames_per_video": eval_frames_per_video,
+        "evaluation_frame_ids_per_video": eval_frame_ids_per_video,
+        "example_videos": int(len(example_frames_per_video)),
+        "example_frames_total": int(len(selected_indices)),
+        "example_frames_per_video": example_frames_per_video,
+        "example_frame_ids_per_video": example_frame_ids_per_video,
+    }
 
     metrics_json_path = f"{output_dir}/{model_name}_metrics.json"
     with open(metrics_json_path, "w", encoding="utf-8") as f:
@@ -490,6 +656,7 @@ def evaluate_regression_model_on_data(
     model_name="ArousalValenceModel",
     max_samples=10,
     dataset_name=None,
+    train_tuple=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -526,10 +693,16 @@ def evaluate_regression_model_on_data(
         "metrics": _collect_regression_metrics_dict(y_val, predictions),
     }
 
-    metrics_report_path = f"{output_dir}/{model_name}_metrics.txt"
-    with open(metrics_report_path, "w", encoding="utf-8") as f:
-        f.write(metrics_text + "\n")
-    print(f"\nSaved metrics report to {metrics_report_path}")
+    train_count = None
+    if train_tuple is not None and len(train_tuple) > 0 and train_tuple[0] is not None:
+        try:
+            train_count = int(len(train_tuple[0]))
+        except Exception:
+            train_count = None
+    metrics_json["data_summary"] = {
+        "train_samples": train_count,
+        "test_samples": int(len(X_val)),
+    }
 
     metrics_json_path = f"{output_dir}/{model_name}_metrics.json"
     with open(metrics_json_path, "w", encoding="utf-8") as f:
@@ -574,22 +747,8 @@ def evaluate_regression_model_on_data(
         output_dir,
         model_name=model_name,
         dataset_name=dataset_name,
-        accuracy=None,  # Not applicable for regression
-        filename=f"{model_name}_samples_with_landmarks.png",
-    )
-
-    debugs_no_landmarks = [{k: v for k, v in debug.items() if k != "landmarks"} for debug in debugs_sample]
-
-    save_sample_frames(
-        frames_sample,
-        preds_sample,
-        labels_sample,
-        debugs_no_landmarks,
-        output_dir,
-        model_name=model_name,
-        dataset_name=dataset_name,
         accuracy=None,
-        filename=f"{model_name}_samples_no_landmarks.png",
+        filename=f"{model_name}_samples.png",
     )
 
     print(f"Evaluation complete. Results saved to {output_dir}")

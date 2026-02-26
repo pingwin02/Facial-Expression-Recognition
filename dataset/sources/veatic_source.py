@@ -6,7 +6,7 @@ from collections import Counter
 
 from dataset.processors import process_video_frames_with_frame_labels
 from dataset.sources.base_source import DatasetSource
-from dataset.utils import build_distribution_result, split_data
+from dataset.utils import build_distribution_result
 
 
 def read_veatic_rating_values(csv_path):
@@ -24,21 +24,6 @@ def read_veatic_rating_values(csv_path):
             except (TypeError, ValueError):
                 continue
     return values
-
-
-def center_window_mean(values, window_fraction=0.4):
-    arr = np.asarray(values, dtype=np.float32)
-    if arr.size == 0:
-        return None
-
-    win = max(1, int(round(arr.size * float(window_fraction))))
-    center = arr.size // 2
-    start = max(0, center - win // 2)
-    end = min(arr.size, start + win)
-
-    if end <= start:
-        return float(np.mean(arr))
-    return float(np.mean(arr[start:end]))
 
 
 def veatic_quadrant_label(arousal_value, valence_value, threshold=0.0):
@@ -138,17 +123,10 @@ class VEATICSource(DatasetSource):
                     )
                 )
 
-            center_arousal = center_window_mean(arousal_values, window_fraction=0.4)
-            center_valence = center_window_mean(valence_values, window_fraction=0.4)
-            video_label = veatic_quadrant_label(center_arousal, center_valence, threshold=0.0)
-
             rows.append(
                 {
                     "video_id": video_id,
                     "filename": video_filename,
-                    "label": video_label,
-                    "center_mean_arousal": center_arousal,
-                    "center_mean_valence": center_valence,
                     "full_arousal_sequence": arousal_values,
                     "full_valence_sequence": valence_values,
                     "frame_labels": frame_labels,
@@ -158,15 +136,6 @@ class VEATICSource(DatasetSource):
             )
 
         df = pd.DataFrame(rows)
-        if not df.empty:
-            state_counts = Counter(df["label"].tolist())
-            print("VEATIC quadrant classification (threshold=0.0):")
-            for state_name, count in sorted(state_counts.items()):
-                print(f"  {state_name}: {count}")
-            arousal_vals = np.array([row["center_mean_arousal"] for _, row in df.iterrows()])
-            valence_vals = np.array([row["center_mean_valence"] for _, row in df.iterrows()])
-            print(f"  Arousal range: [{np.min(arousal_vals):.3f}, {np.max(arousal_vals):.3f}]")
-            print(f"  Valence range: [{np.min(valence_vals):.3f}, {np.max(valence_vals):.3f}]")
 
         return df, video_dir
 
@@ -175,7 +144,22 @@ class VEATICSource(DatasetSource):
         if df.empty:
             raise RuntimeError("VEATIC dataset appears empty or missing paired rating/video files.")
 
-        train_df, val_df = split_data(df, "video_id", seed=seed)
+        unique_ids = np.array(df["video_id"].dropna().unique())
+        if len(unique_ids) < 2:
+            train_df = df.copy().reset_index(drop=True)
+            val_df = df.iloc[0:0].copy().reset_index(drop=True)
+        else:
+            rng = np.random.default_rng(seed)
+            rng.shuffle(unique_ids)
+            split_idx = int(round(len(unique_ids) * 0.8))
+            split_idx = min(max(1, split_idx), len(unique_ids) - 1)
+
+            train_ids = set(unique_ids[:split_idx])
+            val_ids = set(unique_ids[split_idx:])
+
+            train_df = df[df["video_id"].isin(train_ids)].copy().reset_index(drop=True)
+            val_df = df[df["video_id"].isin(val_ids)].copy().reset_index(drop=True)
+
         all_frame_labels = sorted({label for labels in df["frame_labels"] for label in labels})
         label_map = {lbl: idx for idx, lbl in enumerate(all_frame_labels)}
 
@@ -187,7 +171,7 @@ class VEATICSource(DatasetSource):
             video_dir,
             "filename",
             label_map,
-            frames_per_video=50,
+            frames_per_video=150,
             max_candidates=300,
             checkpoint_dir=checkpoint_dir,
             checkpoint_prefix=f"veatic_train_seed{seed}",
@@ -199,7 +183,7 @@ class VEATICSource(DatasetSource):
             video_dir,
             "filename",
             label_map,
-            frames_per_video=50,
+            frames_per_video=150,
             max_candidates=300,
             checkpoint_dir=checkpoint_dir,
             checkpoint_prefix=f"veatic_val_seed{seed}",

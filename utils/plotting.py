@@ -2,6 +2,7 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import textwrap
 
 
 def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="confusion_matrix.png"):
@@ -9,11 +10,20 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     import seaborn as sns
 
     cm = confusion_matrix(y_true, y_pred)
-    plt.figure(figsize=(10, 8))
+
+    def _wrap_label(label, width=14):
+        normalized = str(label).replace("+", " + ").replace("_", " ")
+        chunks = textwrap.wrap(normalized, width=width)
+        return "\n".join(chunks) if chunks else str(label)
 
     class_names = "auto"
     if label_map:
-        class_names = [k for k, v in sorted(label_map.items(), key=lambda item: item[1])]
+        class_names = [_wrap_label(k) for k, v in sorted(label_map.items(), key=lambda item: item[1])]
+
+    n_classes = cm.shape[0] if hasattr(cm, "shape") else 2
+    fig_w = max(10, min(24, 2.0 + 1.5 * n_classes))
+    fig_h = max(8, min(20, 2.0 + 1.3 * n_classes))
+    plt.figure(figsize=(fig_w, fig_h))
 
     sns.heatmap(
         cm,
@@ -26,6 +36,9 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     plt.ylabel("True Label")
     plt.xlabel("Predicted Label")
     plt.title("Confusion Matrix")
+    plt.xticks(rotation=35, ha="right", fontsize=9)
+    plt.yticks(rotation=0, fontsize=9)
+    plt.tight_layout()
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)

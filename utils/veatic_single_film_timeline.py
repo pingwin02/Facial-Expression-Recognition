@@ -49,7 +49,7 @@ def main():
         raise RuntimeError(f"No values in CSV files for video_id={video_id}")
 
     os.makedirs(args.output_dir, exist_ok=True)
-    output_path = os.path.join(args.output_dir, f"timeline_labels_{video_id}.png")
+    output_path = os.path.join(args.output_dir, f"timeline_{video_id}.png")
 
     plot_veatic_frame_label_timeline(
         arousal_seq=arousal_seq,

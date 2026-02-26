@@ -93,7 +93,7 @@ class BinaryModel:
         return (self.model.predict(images_np, verbose=0) > 0.5).astype("int32").flatten()
 
     @classmethod
-    def eval(cls, val, output_dir, label_map=None, dataset_name=None, dataset_path=None):
+    def eval(cls, val, output_dir, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
         model_prefix = cls.__name__.lower()
         loaded_model = find_and_load_model(model_prefix)
         if loaded_model is None:
@@ -107,4 +107,5 @@ class BinaryModel:
             label_map=label_map,
             dataset_name=dataset_name,
             dataset_path=dataset_path,
+            train_tuple=train_tuple,
         )
