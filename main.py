@@ -31,14 +31,6 @@ def main():
     for arg in vars(args):
         print(f"  {arg}: {getattr(args, arg)}")
 
-    try:
-        model_class = load_model_class(args.model)
-        model = model_class()
-    except (AttributeError, ImportError):
-        raise ValueError(f"Unknown model: {args.model}")
-    except TypeError as e:
-        raise ValueError(str(e))
-
     ensure_dataset(INPUT_DIR, dataset_name=args.input)
 
     (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(
@@ -46,6 +38,14 @@ def main():
         args.input,
         no_cache=args.no_cache,
     )
+
+    try:
+        model_class = load_model_class(args.model)
+        model = model_class()
+    except (AttributeError, ImportError):
+        raise ValueError(f"Unknown model: {args.model}")
+    except TypeError as e:
+        raise ValueError(str(e))
 
     OUTPUT_DIR, MODEL_PATH = prepare_output_directory(model, args.mode, dataset=args.input)
 
