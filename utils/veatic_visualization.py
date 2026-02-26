@@ -31,10 +31,10 @@ def get_quadrant_from_av(arousal, valence, threshold=0.0):
 
 def get_quadrant_color(quadrant):
     colors = {
-        "high_arousal_high_valence": "#2ecc71",
-        "high_arousal_low_valence": "#e74c3c",
-        "low_arousal_high_valence": "#3498db",
-        "low_arousal_low_valence": "#95a5a6",
+        "high_arousal_high_valence": "#00b894",
+        "high_arousal_low_valence": "#ff3b30",
+        "low_arousal_high_valence": "#007aff",
+        "low_arousal_low_valence": "#6c5ce7",
     }
     return colors.get(quadrant, "#000000")
 
@@ -57,6 +57,74 @@ def get_quadrant_code(quadrant):
         "low_arousal_low_valence": "Q4",
     }
     return codes.get(quadrant, quadrant)
+
+
+def plot_veatic_frame_label_timeline(arousal_seq, valence_seq, video_name, output_path=None, threshold=0.0):
+    n = min(len(arousal_seq), len(valence_seq))
+    if n == 0:
+        return
+
+    labels = [get_quadrant_from_av(float(arousal_seq[i]), float(valence_seq[i]), threshold=threshold) for i in range(n)]
+    frames = np.arange(n)
+
+    y_map = {
+        "low_arousal_low_valence": 0,
+        "low_arousal_high_valence": 1,
+        "high_arousal_low_valence": 2,
+        "high_arousal_high_valence": 3,
+    }
+    y_values = np.array([y_map.get(lbl, -1) for lbl in labels], dtype=np.int32)
+    colors = [get_quadrant_color(lbl) for lbl in labels]
+
+    fig, ax_values = plt.subplots(figsize=(18, 6))
+
+    run_start = 0
+    for idx in range(1, n + 1):
+        run_end = idx == n
+        label_changed = (not run_end) and (labels[idx] != labels[idx - 1])
+        if run_end or label_changed:
+            run_label = labels[idx - 1]
+            left = run_start - 0.5
+            right = (idx - 1) + 0.5
+            ax_values.axvspan(left, right, color=get_quadrant_color(run_label), alpha=0.24, zorder=0)
+            run_start = idx
+
+    line_arousal = ax_values.plot(frames, arousal_seq[:n], "b-", linewidth=1.5, alpha=0.7, label="Arousal (CSV)")
+    line_valence = ax_values.plot(frames, valence_seq[:n], "g-", linewidth=1.5, alpha=0.7, label="Valence (CSV)")
+    ax_values.axhline(
+        0.0,
+        color="gray",
+        linestyle=":",
+        linewidth=2.0,
+        alpha=0.95,
+        zorder=3,
+        label="Threshold: 0.0",
+    )
+
+    ax_values.set_xlabel("Frame Index", fontsize=12)
+    ax_values.set_ylabel("Value", fontsize=11, fontweight="bold")
+    ax_values.set_title(f"VEATIC frame labels timeline: {video_name}", fontsize=14, fontweight="bold")
+    ax_values.grid(True, alpha=0.3)
+    ax_values.set_ylim(-1.1, 1.1)
+
+    legend_handles = [
+        mpatches.Patch(color=get_quadrant_color("high_arousal_high_valence"), label="Q1 high_arousal_high_valence"),
+        mpatches.Patch(color=get_quadrant_color("high_arousal_low_valence"), label="Q2 high_arousal_low_valence"),
+        mpatches.Patch(color=get_quadrant_color("low_arousal_high_valence"), label="Q3 low_arousal_high_valence"),
+        mpatches.Patch(color=get_quadrant_color("low_arousal_low_valence"), label="Q4 low_arousal_low_valence"),
+    ]
+    value_handles = line_arousal + line_valence + [ax_values.lines[-1]]
+    value_labels = [h.get_label() for h in value_handles]
+    legend_values = ax_values.legend(value_handles, value_labels, loc="upper left", fontsize=9, framealpha=0.9)
+    ax_values.add_artist(legend_values)
+    ax_values.legend(handles=legend_handles, loc="upper right", fontsize=9, framealpha=0.9)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=150, bbox_inches="tight")
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_veatic_timeline(
@@ -314,6 +382,7 @@ def create_veatic_visualizations(
     valence_vals = []
 
     sample_count = 0
+    frame_label_timeline_created = False
     processed_videos = set()
 
     for idx, debug in enumerate(val_debugs):
@@ -398,6 +467,17 @@ def create_veatic_visualizations(
                 output_path=output_path,
             )
 
+            if not frame_label_timeline_created:
+                labels_timeline_path = os.path.join(output_dir, f"timeline_labels_{video_id}.png")
+                plot_veatic_frame_label_timeline(
+                    arousal_seq,
+                    valence_seq,
+                    video_name,
+                    output_path=labels_timeline_path,
+                    threshold=0.0,
+                )
+                frame_label_timeline_created = True
+
             sample_count += 1
             processed_videos.add(video_name)
 
@@ -411,4 +491,6 @@ def create_veatic_visualizations(
     )
 
     print(f"\nCreated {sample_count} timeline visualizations in {output_dir}")
+    if frame_label_timeline_created:
+        print("Created 1 frame-label timeline visualization for VEATIC test.")
     print(f"Created quadrant plot: {quadrant_path}")

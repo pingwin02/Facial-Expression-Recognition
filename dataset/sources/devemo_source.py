@@ -61,6 +61,8 @@ class DevemoSource(DatasetSource):
 
         train_df, val_df = split_data(df, id_col, seed=seed)
         label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
+        checkpoint_dir = os.path.join(self.input_dir, ".tmp")
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
         X_train, y_train, train_debugs = process_video_sequences(
             train_df,
@@ -69,6 +71,10 @@ class DevemoSource(DatasetSource):
             label_map,
             sequence_length=8,
             max_candidates=90,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}_seq8",
+            save_checkpoint_every=25,
+            resume_from_checkpoint=True,
         )
         X_val, y_val, val_debugs = process_video_sequences(
             val_df,
@@ -77,6 +83,10 @@ class DevemoSource(DatasetSource):
             label_map,
             sequence_length=8,
             max_candidates=90,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}_seq8",
+            save_checkpoint_every=25,
+            resume_from_checkpoint=True,
         )
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map

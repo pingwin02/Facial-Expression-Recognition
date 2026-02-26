@@ -4,7 +4,7 @@ import os
 import pandas as pd
 from collections import Counter
 
-from dataset.processors import process_video_sequences
+from dataset.processors import process_video_frames_with_frame_labels
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import build_distribution_result, split_data
 
@@ -69,13 +69,10 @@ def label_distribution_from_veatic(dataset_path):
         if not arousal_values or not valence_values:
             continue
 
-        center_arousal = center_window_mean(arousal_values, window_fraction=0.4)
-        center_valence = center_window_mean(valence_values, window_fraction=0.4)
-        if center_arousal is None or center_valence is None:
-            continue
-
-        state = veatic_quadrant_label(center_arousal, center_valence, threshold=0.0)
-        counts[state] += 1
+        n = min(len(arousal_values), len(valence_values))
+        for frame_idx in range(n):
+            state = veatic_quadrant_label(arousal_values[frame_idx], valence_values[frame_idx], threshold=0.0)
+            counts[state] += 1
 
     return build_distribution_result(counts)
 
@@ -127,22 +124,34 @@ class VEATICSource(DatasetSource):
             if not arousal_values or not valence_values:
                 continue
 
-            center_arousal = center_window_mean(arousal_values, window_fraction=0.4)
-            center_valence = center_window_mean(valence_values, window_fraction=0.4)
-            if center_arousal is None or center_valence is None:
+            sequence_len = min(len(arousal_values), len(valence_values))
+            if sequence_len <= 0:
                 continue
 
-            label = veatic_quadrant_label(center_arousal, center_valence, threshold=0.0)
+            frame_labels = []
+            for frame_idx in range(sequence_len):
+                frame_labels.append(
+                    veatic_quadrant_label(
+                        arousal_values[frame_idx],
+                        valence_values[frame_idx],
+                        threshold=0.0,
+                    )
+                )
+
+            center_arousal = center_window_mean(arousal_values, window_fraction=0.4)
+            center_valence = center_window_mean(valence_values, window_fraction=0.4)
+            video_label = veatic_quadrant_label(center_arousal, center_valence, threshold=0.0)
 
             rows.append(
                 {
                     "video_id": video_id,
                     "filename": video_filename,
-                    "label": label,
+                    "label": video_label,
                     "center_mean_arousal": center_arousal,
                     "center_mean_valence": center_valence,
                     "full_arousal_sequence": arousal_values,
                     "full_valence_sequence": valence_values,
+                    "frame_labels": frame_labels,
                     "arousal_path": arousal_path,
                     "valence_path": valence_path,
                 }
@@ -167,23 +176,35 @@ class VEATICSource(DatasetSource):
             raise RuntimeError("VEATIC dataset appears empty or missing paired rating/video files.")
 
         train_df, val_df = split_data(df, "video_id", seed=seed)
-        label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
+        all_frame_labels = sorted({label for labels in df["frame_labels"] for label in labels})
+        label_map = {lbl: idx for idx, lbl in enumerate(all_frame_labels)}
 
-        X_train, y_train, train_debugs = process_video_sequences(
+        checkpoint_dir = os.path.join(self.input_dir, ".tmp")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        X_train, y_train, train_debugs = process_video_frames_with_frame_labels(
             train_df,
             video_dir,
             "filename",
             label_map,
-            sequence_length=8,
-            max_candidates=90,
+            frames_per_video=100,
+            max_candidates=None,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"veatic_train_seed{seed}",
+            save_checkpoint_every=1,
+            resume_from_checkpoint=True,
         )
-        X_val, y_val, val_debugs = process_video_sequences(
+        X_val, y_val, val_debugs = process_video_frames_with_frame_labels(
             val_df,
             video_dir,
             "filename",
             label_map,
-            sequence_length=8,
-            max_candidates=90,
+            frames_per_video=100,
+            max_candidates=None,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"veatic_val_seed{seed}",
+            save_checkpoint_every=1,
+            resume_from_checkpoint=True,
         )
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map

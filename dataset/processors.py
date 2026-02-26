@@ -1,6 +1,8 @@
 import cv2
 import numpy as np
 import os
+import pickle
+import re
 from tqdm import tqdm
 
 from utils.image import get_dlib_detector_predictor, detect_and_crop_face
@@ -36,6 +38,8 @@ def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_H
 
 
 def _build_candidate_indices(total_frames, max_candidates):
+    if max_candidates is None:
+        return np.arange(total_frames, dtype=int)
     if total_frames <= max_candidates:
         return np.arange(total_frames, dtype=int)
     return np.linspace(0, total_frames - 1, max_candidates, dtype=int)
@@ -99,39 +103,326 @@ def _select_diverse_top_indices(scored_indices, target_count, total_frames):
     return sorted(selected[:target_count])
 
 
-def process_image_directory(directory, label_map):
-    X, y, debugs = [], [], []
+def _map_video_frame_to_sequence_index(frame_idx, total_frames, sequence_length):
+    if sequence_length <= 0:
+        return 0
+    if total_frames <= 1:
+        return 0
+
+    ratio = float(frame_idx) / float(total_frames - 1)
+    mapped = int(round(ratio * float(sequence_length - 1)))
+    return int(np.clip(mapped, 0, sequence_length - 1))
+
+
+def _checkpoint_path(checkpoint_dir, checkpoint_prefix, iteration):
+    return os.path.join(checkpoint_dir, f"{checkpoint_prefix}_iter{int(iteration):06d}.tmp")
+
+
+def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix):
+    if not checkpoint_dir or not checkpoint_prefix:
+        return None
+    if not os.path.isdir(checkpoint_dir):
+        return None
+
+    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    latest_iter = -1
+    latest_path = None
+
+    for filename in os.listdir(checkpoint_dir):
+        match = pattern.match(filename)
+        if not match:
+            continue
+        iter_idx = int(match.group(1))
+        if iter_idx > latest_iter:
+            latest_iter = iter_idx
+            latest_path = os.path.join(checkpoint_dir, filename)
+
+    return latest_path
+
+
+def _save_iteration_checkpoint(
+    checkpoint_dir,
+    checkpoint_prefix,
+    next_index,
+    X,
+    y,
+    debugs,
+):
+    if not checkpoint_dir or not checkpoint_prefix:
+        return None
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index)
+    payload = {
+        "next_index": int(next_index),
+        "X": X,
+        "y": y,
+        "debugs": debugs,
+    }
+
+    with open(path, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    for filename in os.listdir(checkpoint_dir):
+        match = pattern.match(filename)
+        if not match:
+            continue
+        candidate_path = os.path.join(checkpoint_dir, filename)
+        if candidate_path == path:
+            continue
+        try:
+            os.remove(candidate_path)
+        except OSError:
+            pass
+
+    return path
+
+
+def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
+    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix)
+    if latest_path is None:
+        return 0, [], [], []
+
+    with open(latest_path, "rb") as f:
+        payload = pickle.load(f)
+
+    next_index = int(payload.get("next_index", 0))
+    X = payload.get("X", [])
+    y = payload.get("y", [])
+    debugs = payload.get("debugs", [])
+
+    print(f"Resuming from checkpoint: {latest_path} " f"(next_index={next_index}, samples={len(X)})")
+
+    return next_index, X, y, debugs
+
+
+def process_video_frames_with_frame_labels(
+    df,
+    video_dir,
+    filename_col,
+    label_map,
+    frames_per_video=100,
+    max_candidates=None,
+    checkpoint_dir=None,
+    checkpoint_prefix=None,
+    save_checkpoint_every=1,
+    resume_from_checkpoint=True,
+):
+    if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+        start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
+    else:
+        start_index, X, y, debugs = 0, [], [], []
+
+    detector_pack = get_dlib_detector_predictor()
+    detector, _ = detector_pack
+
+    first_run = True
+
+    for row_idx, (_, row) in enumerate(tqdm(df.iterrows(), desc="Processing videos", total=len(df), unit="video")):
+        if row_idx < start_index:
+            continue
+
+        video_name = row[filename_col]
+        video_path = os.path.join(video_dir, video_name)
+
+        arousal_seq = row.get("full_arousal_sequence", [])
+        valence_seq = row.get("full_valence_sequence", [])
+        if arousal_seq is None or valence_seq is None:
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            continue
+
+        arousal_seq = list(arousal_seq)
+        valence_seq = list(valence_seq)
+        sequence_length = min(len(arousal_seq), len(valence_seq))
+        if sequence_length <= 0:
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            continue
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            continue
+
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            cap.release()
+            continue
+
+        candidate_indices = _build_candidate_indices(total_frames, max_candidates=max_candidates)
+        scored_candidates = []
+        prev_gray = None
+
+        for frame_idx in candidate_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+            ret, frame = cap.read()
+            if not ret:
+                continue
+
+            has_face = _has_face_detected(frame, detector)
+            if not has_face:
+                continue
+
+            quality, prev_gray = _frame_quality_score(frame, prev_gray)
+            scored_candidates.append((int(frame_idx), float(quality)))
+
+        if not scored_candidates:
+            cap.release()
+            continue
+
+        frame_indices = _select_diverse_top_indices(scored_candidates, frames_per_video, total_frames)
+        if not frame_indices:
+            frame_indices = [idx for idx, _ in scored_candidates[:frames_per_video]]
+
+        frames_collected = 0
+        last_sample = None
+
+        for frame_idx in frame_indices:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+            ret, frame = cap.read()
+            if not ret:
+                continue
+
+            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
+            if face is None:
+                continue
+
+            face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
+            face_channel = np.squeeze(face)
+            if face_channel.ndim != 2:
+                continue
+
+            if crop_box is not None and landmarks is not None:
+                landmark_mask = normalize_and_create_mask(landmarks, crop_box)
+            else:
+                landmark_mask = np.zeros((IMG_HEIGHT, IMG_WIDTH), dtype=np.float32)
+
+            combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
+
+            if first_run:
+                print(f"\nCombined shape: {combined_img.shape}")
+                first_run = False
+
+            label_idx = _map_video_frame_to_sequence_index(frame_idx, total_frames, sequence_length)
+            frame_labels = row.get("frame_labels", [])
+            if label_idx >= len(frame_labels):
+                continue
+            label_name = frame_labels[label_idx]
+            label = label_map.get(label_name)
+            if label is None:
+                continue
+
+            sample_debug = {
+                "video": video_name,
+                "frame_idx": int(frame_idx),
+                "csv_index": int(label_idx),
+                "label_name": label_name,
+                "crop_box": crop_box,
+                "landmarks": landmarks,
+            }
+
+            X.append(combined_img)
+            y.append(label)
+            debugs.append(sample_debug)
+
+            last_sample = (combined_img, label, sample_debug)
+            frames_collected += 1
+
+        while frames_collected < frames_per_video and last_sample is not None:
+            repeated_img = last_sample[0].copy()
+            repeated_label = int(last_sample[1])
+            repeated_debug = dict(last_sample[2])
+            repeated_debug["is_repeated"] = True
+
+            X.append(repeated_img)
+            y.append(repeated_label)
+            debugs.append(repeated_debug)
+
+            frames_collected += 1
+
+        cap.release()
+
+        if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+            checkpoint_path = _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            if checkpoint_path is not None:
+                print(f"Checkpoint saved: {checkpoint_path}")
+
+    if checkpoint_dir and checkpoint_prefix:
+        _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, len(df), X, y, debugs)
+
+    return np.array(X), np.array(y), debugs
+
+
+def process_image_directory(
+    directory,
+    label_map,
+    checkpoint_dir=None,
+    checkpoint_prefix=None,
+    save_checkpoint_every=100,
+    resume_from_checkpoint=True,
+):
+    if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+        start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
+    else:
+        start_index, X, y, debugs = 0, [], [], []
+
     detector_pack = get_dlib_detector_predictor()
 
     first_run = True
 
-    for label in tqdm(os.listdir(directory), desc="Processing labels", unit="label"):
+    entries = []
+    for label in sorted(os.listdir(directory)):
         label_dir = os.path.join(directory, label)
-        if os.path.isdir(label_dir):
-            for image_file in tqdm(os.listdir(label_dir), desc=f"Processing images for label {label}", unit="image"):
-                image_path = os.path.join(label_dir, image_file)
+        if not os.path.isdir(label_dir):
+            continue
+        if label not in label_map:
+            continue
+        for image_file in sorted(os.listdir(label_dir)):
+            entries.append((label, os.path.join(label_dir, image_file)))
 
-                image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    for sample_idx, (label, image_path) in enumerate(tqdm(entries, desc="Processing images", unit="image")):
+        if sample_idx < start_index:
+            continue
 
-                if image is not None:
-                    face, crop_box, landmarks = detect_and_crop_face(image, *detector_pack)
+        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
 
-                    if face is not None and crop_box is not None and landmarks is not None:
-                        face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
-                        face_channel = np.squeeze(face)
-                        if face_channel.ndim != 2:
-                            continue
+        if image is not None:
+            face, crop_box, landmarks = detect_and_crop_face(image, *detector_pack)
 
-                        landmark_mask = normalize_and_create_mask(landmarks, crop_box)
-                        combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
+            if face is not None and crop_box is not None and landmarks is not None:
+                face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
+                face_channel = np.squeeze(face)
+                if face_channel.ndim != 2:
+                    continue
 
-                        if first_run:
-                            print(f"\nCombined shape: {combined_img.shape}")
-                            first_run = False
+                landmark_mask = normalize_and_create_mask(landmarks, crop_box)
+                combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
 
-                        X.append(combined_img)
-                        y.append(label_map[label])
-                        debugs.append({"crop_box": crop_box, "landmarks": landmarks})
+                if first_run:
+                    print(f"\nCombined shape: {combined_img.shape}")
+                    first_run = False
+
+                X.append(combined_img)
+                y.append(label_map[label])
+                debugs.append({"crop_box": crop_box, "landmarks": landmarks, "image_path": image_path})
+
+        if checkpoint_dir and checkpoint_prefix and ((sample_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+            checkpoint_path = _save_iteration_checkpoint(
+                checkpoint_dir,
+                checkpoint_prefix,
+                sample_idx + 1,
+                X,
+                y,
+                debugs,
+            )
+            if checkpoint_path is not None:
+                print(f"Checkpoint saved: {checkpoint_path}")
+
+    if checkpoint_dir and checkpoint_prefix:
+        _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, len(entries), X, y, debugs)
 
     return np.array(X), np.array(y), debugs
 
@@ -223,24 +514,39 @@ def process_video_sequences(
     label_map,
     sequence_length=8,
     max_candidates=90,
+    checkpoint_dir=None,
+    checkpoint_prefix=None,
+    save_checkpoint_every=1,
+    resume_from_checkpoint=True,
 ):
-    X, y, debugs = [], [], []
+    if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+        start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
+    else:
+        start_index, X, y, debugs = 0, [], [], []
+
     detector_pack = get_dlib_detector_predictor()
 
     first_run = True
 
-    for _, row in tqdm(df.iterrows(), desc="Processing videos", total=len(df), unit="video"):
+    for row_idx, (_, row) in enumerate(tqdm(df.iterrows(), desc="Processing videos", total=len(df), unit="video")):
+        if row_idx < start_index:
+            continue
+
         video_name = row[filename_col]
         video_path = os.path.join(video_dir, video_name)
         label = row["label"] if label_map is None else label_map.get(row["label"], 0)
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         if total_frames <= 0:
             cap.release()
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
         candidate_indices = _build_candidate_indices(total_frames, max_candidates=max_candidates)
@@ -269,6 +575,8 @@ def process_video_sequences(
 
         if not quality_values:
             cap.release()
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
         q_scores = np.array([q for _, q in quality_values], dtype=np.float32)
@@ -332,6 +640,8 @@ def process_video_sequences(
         cap.release()
 
         if not sequence_frames:
+            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
         while len(sequence_frames) < sequence_length:
@@ -353,5 +663,13 @@ def process_video_sequences(
                 "landmarks": sequence_debug[len(sequence_debug) // 2].get("landmarks"),
             }
         )
+
+        if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
+            checkpoint_path = _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            if checkpoint_path is not None:
+                print(f"Checkpoint saved: {checkpoint_path}")
+
+    if checkpoint_dir and checkpoint_prefix:
+        _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, len(df), X, y, debugs)
 
     return np.array(X), np.array(y), debugs

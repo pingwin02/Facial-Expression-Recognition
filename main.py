@@ -28,6 +28,9 @@ def main():
 
     INPUT_DIR = "input"
 
+    for arg in vars(args):
+        print(f"  {arg}: {getattr(args, arg)}")
+
     try:
         model_class = load_model_class(args.model)
         model = model_class()

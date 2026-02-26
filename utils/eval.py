@@ -156,6 +156,12 @@ def _evaluate_video_level(predictions, y_labels, debug_infos, is_binary):
     for _, indices in video_groups.items():
         indices = np.array(indices, dtype=int)
         labels_for_video = y_labels[indices]
+        if len(np.unique(labels_for_video)) > 1:
+            return None
+
+    for _, indices in video_groups.items():
+        indices = np.array(indices, dtype=int)
+        labels_for_video = y_labels[indices]
         values, counts = np.unique(labels_for_video, return_counts=True)
         true_label = int(values[np.argmax(counts)])
 
