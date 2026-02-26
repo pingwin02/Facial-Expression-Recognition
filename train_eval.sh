@@ -104,7 +104,7 @@ fi
 for MODE in "${MODES_TO_RUN[@]}"; do
     for INPUT_NAME in "${INPUTS_TO_RUN[@]}"; do
         for MODEL in "${MODELS_TO_RUN[@]}"; do
-            python main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL"
+            python -u main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL"
         done
     done
 done

@@ -5,6 +5,7 @@ from tensorflow.keras import layers, models, callbacks, optimizers, applications
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
+from utils.wandb_utils import init_wandb_run, finish_wandb_run
 
 
 class TransferModel:
@@ -155,6 +156,9 @@ class TransferModel:
 
     @classmethod
     def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
+        wandb_run = None
+        wandb_callback = None
+
         X_train = cls._prepare_inputs(X_train)
         X_val = cls._prepare_inputs(X_val)
 
@@ -184,6 +188,18 @@ class TransferModel:
         warmup_epochs = min(max(5, epochs // 10), 15)
         warmup_epochs = min(warmup_epochs, max(1, epochs))
 
+        wandb_run, wandb_callback = init_wandb_run(
+            model_name=cls.__name__,
+            dataset_name=None,
+            epochs=epochs,
+            output_dir=output_dir,
+            extra_config={
+                "num_classes": int(num_classes),
+                "input_shape": tuple(input_shape),
+                "warmup_epochs": int(warmup_epochs),
+            },
+        )
+
         model.set_fine_tune_layers(trainable_backbone_layers=0)
         model.compile(learning_rate=5e-4, loss="sparse_categorical_crossentropy")
 
@@ -197,43 +213,54 @@ class TransferModel:
 
         print(f"Starting training TransferModel for {epochs} epochs...")
 
-        history_warmup = model.model.fit(
-            X_train,
-            y_train,
-            validation_data=(X_val, y_val, val_sample_weights),
-            epochs=warmup_epochs,
-            batch_size=8,
-            sample_weight=sample_weights,
-            callbacks=[save_best],
-        )
+        try:
+            warmup_callbacks = [save_best]
+            if wandb_callback is not None:
+                warmup_callbacks.append(wandb_callback)
 
-        if epochs > warmup_epochs:
-            model.set_fine_tune_layers(trainable_backbone_layers=60)
-            model.compile(learning_rate=8e-5, loss="sparse_categorical_crossentropy")
-
-            history_finetune = model.model.fit(
+            history_warmup = model.model.fit(
                 X_train,
                 y_train,
                 validation_data=(X_val, y_val, val_sample_weights),
-                initial_epoch=warmup_epochs,
-                epochs=epochs,
+                epochs=warmup_epochs,
                 batch_size=8,
-                callbacks=[reduce_lr, save_best],
                 sample_weight=sample_weights,
+                callbacks=warmup_callbacks,
             )
 
-            history_dict = history_warmup.history
-            for key, values in history_finetune.history.items():
-                history_dict.setdefault(key, [])
-                history_dict[key].extend(values)
-        else:
-            history_dict = history_warmup.history
+            if epochs > warmup_epochs:
+                model.set_fine_tune_layers(trainable_backbone_layers=60)
+                model.compile(learning_rate=8e-5, loss="sparse_categorical_crossentropy")
 
-        model.model.load_weights(model_filename)
-        model.model.save(model_filename)
-        plot_metrics(history_dict, output_dir, model_name=cls.__name__)
+                finetune_callbacks = [reduce_lr, save_best]
+                if wandb_callback is not None:
+                    finetune_callbacks.append(wandb_callback)
 
-        return history_dict
+                history_finetune = model.model.fit(
+                    X_train,
+                    y_train,
+                    validation_data=(X_val, y_val, val_sample_weights),
+                    initial_epoch=warmup_epochs,
+                    epochs=epochs,
+                    batch_size=8,
+                    callbacks=finetune_callbacks,
+                    sample_weight=sample_weights,
+                )
+
+                history_dict = history_warmup.history
+                for key, values in history_finetune.history.items():
+                    history_dict.setdefault(key, [])
+                    history_dict[key].extend(values)
+            else:
+                history_dict = history_warmup.history
+
+            model.model.load_weights(model_filename)
+            model.model.save(model_filename)
+            plot_metrics(history_dict, output_dir, model_name=cls.__name__)
+
+            return history_dict
+        finally:
+            finish_wandb_run(wandb_run, model_filename=model_filename)
 
     def predict(self, images_np):
         images_np = self._prepare_inputs(images_np)

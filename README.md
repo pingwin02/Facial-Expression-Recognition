@@ -44,6 +44,21 @@ Useful values:
 - `--input`: `devemo`, `devemo+`, `fer2013` and other
 - `--model`: `TransferModel`, `BinaryModel` and other
 
+### Optional: Weights & Biases (wandb) logging
+
+Training supports optional wandb logging. Put your API key in `.env` in the project root:
+
+```bash
+WANDB_API_KEY=your_api_key_here
+WANDB_PROJECT=facial-expression-recognition
+# optional
+# WANDB_ENTITY=your_team_or_user
+# WANDB_MODE=online
+# WANDB_RUN_NAME=my_custom_run_name
+```
+
+If `WANDB_API_KEY` is missing, training runs normally without wandb.
+
 ### Option 2: Run with bash script (`train_eval.sh`)
 
 The script runs both phases (`train` then `eval`) and supports menu index selection.
