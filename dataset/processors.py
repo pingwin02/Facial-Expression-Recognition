@@ -306,9 +306,6 @@ def process_video_frames_with_frame_labels(
             if not frame_indices:
                 frame_indices = [idx for idx, _ in scored_candidates[:target_frames]]
 
-        frames_collected = 0
-        last_sample = None
-
         for frame_idx in frame_indices:
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
             ret, frame = cap.read()
@@ -356,23 +353,6 @@ def process_video_frames_with_frame_labels(
             X.append(combined_img)
             y.append(label)
             debugs.append(sample_debug)
-
-            last_sample = (combined_img, label, sample_debug)
-            frames_collected += 1
-
-        if not use_all_frames:
-            target_frames = int(frames_per_video)
-            while frames_collected < target_frames and last_sample is not None:
-                repeated_img = last_sample[0].copy()
-                repeated_label = int(last_sample[1])
-                repeated_debug = dict(last_sample[2])
-                repeated_debug["is_repeated"] = True
-
-                X.append(repeated_img)
-                y.append(repeated_label)
-                debugs.append(repeated_debug)
-
-                frames_collected += 1
 
         cap.release()
 
@@ -454,86 +434,6 @@ def process_image_directory(
 
     if checkpoint_dir and checkpoint_prefix:
         _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
-
-    return np.array(X), np.array(y), debugs
-
-
-def process_video_data(df, video_dir, filename_col, label_map, frames_per_video=12, max_candidates=60):
-    X, y, debugs = [], [], []
-    detector_pack = get_dlib_detector_predictor()
-
-    first_run = True
-
-    for _, row in tqdm(df.iterrows(), desc="Processing videos", total=len(df), unit="video"):
-        video_path = os.path.join(video_dir, row[filename_col])
-        label = row["label"] if label_map is None else label_map.get(row["label"], 0)
-
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
-            continue
-
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames <= 0:
-            cap.release()
-            continue
-
-        candidate_indices = _build_candidate_indices(total_frames, max_candidates=max_candidates)
-        detector, _ = detector_pack
-        scored_candidates = []
-        prev_gray = None
-
-        for frame_idx in candidate_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
-            ret, frame = cap.read()
-            if not ret:
-                continue
-
-            score, prev_gray = _frame_quality_score(frame, prev_gray)
-            has_face = _has_face_detected(frame, detector)
-            # Boost score by 50% if face detected to prioritize frames with faces
-            if has_face:
-                score = score * 1.5
-            scored_candidates.append((int(frame_idx), score))
-
-        frame_indices = _select_diverse_top_indices(scored_candidates, frames_per_video, total_frames)
-        if not frame_indices:
-            frame_indices = np.linspace(0, total_frames - 1, frames_per_video, dtype=int).tolist()
-
-        for frame_idx in frame_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, frame = cap.read()
-
-            if not ret:
-                continue
-
-            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
-
-            if face is not None and crop_box is not None and landmarks is not None:
-                face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
-                face_channel = np.squeeze(face)
-                if face_channel.ndim != 2:
-                    continue
-
-                landmark_mask = normalize_and_create_mask(landmarks, crop_box)
-                combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
-
-                if first_run:
-                    print(f"\nCombined shape: {combined_img.shape}")
-                    first_run = False
-
-                X.append(combined_img)
-                y.append(label)
-
-                debugs.append(
-                    {
-                        "video": row[filename_col],
-                        "frame_idx": int(frame_idx),
-                        "crop_box": crop_box,
-                        "landmarks": landmarks,
-                    }
-                )
-
-        cap.release()
 
     return np.array(X), np.array(y), debugs
 

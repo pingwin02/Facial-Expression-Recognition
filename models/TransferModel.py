@@ -16,35 +16,45 @@ class TransferModel:
             [
                 layers.RandomFlip("horizontal"),
                 layers.RandomContrast(0.12),
+                layers.RandomRotation(0.06),
+                layers.RandomZoom(height_factor=(-0.08, 0.12), width_factor=(-0.08, 0.12)),
             ],
             name="frame_aug",
         )
 
         x = layers.TimeDistributed(data_augmentation, name="video_aug")(inputs)
 
-        x = layers.TimeDistributed(layers.Conv2D(16, (1, 1), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.Conv2D(24, (1, 1), padding="same", use_bias=False))(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
-        x = layers.TimeDistributed(layers.Conv2D(3, (3, 3), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.SeparableConv2D(24, (3, 3), padding="same", use_bias=False))(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
-        x = layers.TimeDistributed(layers.Resizing(96, 96, interpolation="bilinear"))(x)
+        x = layers.TimeDistributed(layers.Conv2D(3, (1, 1), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.BatchNormalization())(x)
+        x = layers.TimeDistributed(layers.Activation("relu"))(x)
+
+        x = layers.TimeDistributed(layers.Resizing(128, 128, interpolation="bilinear"))(x)
 
         x = layers.TimeDistributed(layers.Rescaling(scale=2.0, offset=-1.0))(x)
 
-        self.base_model = applications.EfficientNetV2B0(input_shape=(96, 96, 3), include_top=False, weights="imagenet")
+        self.base_model = applications.EfficientNetV2B2(
+            input_shape=(128, 128, 3), include_top=False, weights="imagenet"
+        )
 
         x = layers.TimeDistributed(self.base_model)(x)
         x = layers.TimeDistributed(layers.GlobalAveragePooling2D())(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
-        x = layers.TimeDistributed(layers.Dropout(0.25))(x)
+        x = layers.TimeDistributed(layers.Dropout(0.35))(x)
 
         timesteps = int(input_shape[0]) if isinstance(input_shape, tuple) and len(input_shape) > 0 else None
         if timesteps == 1:
             x = layers.Flatten(name="single_frame_pool")(x)
         else:
+            x = layers.Bidirectional(layers.GRU(192, return_sequences=True, dropout=0.25, recurrent_dropout=0.0))(x)
+            x = layers.LayerNormalization()(x)
             x = layers.Bidirectional(layers.GRU(128, return_sequences=True, dropout=0.2, recurrent_dropout=0.0))(x)
 
             attn = layers.Dense(1, activation="tanh", name="temporal_attention_logits")(x)
@@ -53,11 +63,16 @@ class TransferModel:
             x = layers.Flatten()(x)
 
         x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.5)(x)
+
+        x = layers.Dense(512)(x)
+        x = layers.BatchNormalization()(x)
+        x = layers.Activation("gelu")(x)
         x = layers.Dropout(0.4)(x)
 
         x = layers.Dense(256)(x)
         x = layers.BatchNormalization()(x)
-        x = layers.Activation("relu")(x)
+        x = layers.Activation("gelu")(x)
         x = layers.Dropout(0.3)(x)
 
         outputs = layers.Dense(num_classes, activation="softmax")(x)
@@ -171,10 +186,12 @@ class TransferModel:
 
         if X_train.ndim == 5:
             X_train, y_train = cls._oversample_minority_classes(
-                X_train, y_train, min_target_ratio=0.2, max_multiplier=4
+                X_train, y_train, min_target_ratio=0.45, max_multiplier=6
             )
         else:
-            X_train, y_train = cls._oversample_minority_classes(X_train, y_train)
+            X_train, y_train = cls._oversample_minority_classes(
+                X_train, y_train, min_target_ratio=0.45, max_multiplier=6
+            )
 
         class_weight_map = cls._build_class_weight_map(y_train_original)
         sample_weights = cls._build_sample_weights(y_train, class_weight_map)
@@ -185,7 +202,7 @@ class TransferModel:
         input_shape = X_train.shape[1:]
 
         model = cls(input_shape=input_shape, num_classes=num_classes)
-        warmup_epochs = min(max(5, epochs // 10), 15)
+        warmup_epochs = min(max(8, epochs // 8), 20)
         warmup_epochs = min(warmup_epochs, max(1, epochs))
 
         wandb_run, wandb_callback = init_wandb_run(
@@ -201,11 +218,12 @@ class TransferModel:
         )
 
         model.set_fine_tune_layers(trainable_backbone_layers=0)
-        model.compile(learning_rate=5e-4, loss="sparse_categorical_crossentropy")
+        model.compile(learning_rate=3e-4, loss="sparse_categorical_crossentropy")
 
         model.model.summary()
 
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=8, min_lr=1e-7, verbose=1)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=6, min_lr=1e-7, verbose=1)
+        early_stop = callbacks.EarlyStopping(monitor="val_loss", patience=14, restore_best_weights=True, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
             model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
@@ -214,7 +232,7 @@ class TransferModel:
         print(f"Starting training TransferModel for {epochs} epochs...")
 
         try:
-            warmup_callbacks = [save_best]
+            warmup_callbacks = [save_best, reduce_lr]
             if wandb_callback is not None:
                 warmup_callbacks.append(wandb_callback)
 
@@ -229,10 +247,10 @@ class TransferModel:
             )
 
             if epochs > warmup_epochs:
-                model.set_fine_tune_layers(trainable_backbone_layers=60)
-                model.compile(learning_rate=8e-5, loss="sparse_categorical_crossentropy")
+                model.set_fine_tune_layers(trainable_backbone_layers=120)
+                model.compile(learning_rate=4e-5, loss="sparse_categorical_crossentropy")
 
-                finetune_callbacks = [reduce_lr, save_best]
+                finetune_callbacks = [reduce_lr, early_stop, save_best]
                 if wandb_callback is not None:
                     finetune_callbacks.append(wandb_callback)
 

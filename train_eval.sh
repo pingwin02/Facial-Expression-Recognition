@@ -105,6 +105,15 @@ for MODE in "${MODES_TO_RUN[@]}"; do
     for INPUT_NAME in "${INPUTS_TO_RUN[@]}"; do
         for MODEL in "${MODELS_TO_RUN[@]}"; do
             python -u main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL"
+            if [ $? -ne 0 ]; then
+                echo "Error: Command failed. Exiting."
+                exit 1
+            fi
         done
     done
 done
+
+if [ -f ~/.netrc ]; then
+    rm ~/.netrc
+    echo "Logged out from Weights & Biases (.netrc removed)"
+fi

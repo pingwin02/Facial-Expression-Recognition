@@ -11,12 +11,25 @@ import tensorflow as tf
 def _input_with_timeout(prompt, timeout_seconds=5):
     print(prompt, end="", flush=True)
 
-    ready, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
+    try:
+        ready, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
+    except (OSError, ValueError):
+        print()
+        return None
+
     if not ready:
         print()
         return None
 
-    return sys.stdin.readline().strip()
+    try:
+        return sys.stdin.readline().strip()
+    except OSError:
+        print()
+        return None
+
+
+def _is_interactive_stdin():
+    return bool(getattr(sys.stdin, "isatty", lambda: False)())
 
 
 def find_and_load_model(model_prefix="SimpleModel"):
@@ -43,22 +56,27 @@ def find_and_load_model(model_prefix="SimpleModel"):
         for i, path in enumerate(candidates):
             print(f"[{i}] {path}")
 
-        while True:
-            user_input = _input_with_timeout(
-                f"\nSelect model index to load (0-{len(candidates) - 1}) [default: 0, timeout: 5s]: ",
-                timeout_seconds=5,
-            )
-            if user_input is None or user_input == "":
-                index = 0
-                break
-
-            if user_input.isdigit():
-                index = int(user_input)
-                if 0 <= index < len(candidates):
+        if not _is_interactive_stdin():
+            print("Non-interactive stdin detected; selecting default model index 0.")
+            selected_path = candidates[0]
+        else:
+            while True:
+                user_input = _input_with_timeout(
+                    f"\nSelect model index to load (0-{len(candidates) - 1}) [default: 0, timeout: 5s]: ",
+                    timeout_seconds=5,
+                )
+                if user_input is None or user_input == "":
+                    index = 0
                     selected_path = candidates[index]
                     break
 
-            print("Invalid selection. Please try again.")
+                if user_input.isdigit():
+                    index = int(user_input)
+                    if 0 <= index < len(candidates):
+                        selected_path = candidates[index]
+                        break
+
+                print("Invalid selection. Please try again.")
 
     print(f"Loading trained model from: {selected_path}")
     try:
