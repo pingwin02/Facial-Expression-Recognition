@@ -55,9 +55,6 @@ def init_wandb_run(model_name, dataset_name=None, epochs=None, output_dir=None, 
     if isinstance(extra_config, dict):
         config.update(extra_config)
 
-    wandb_dir = output_dir or "output"
-    os.makedirs(wandb_dir, exist_ok=True)
-
     wandb.login(key=api_key, relogin=False)
     run = wandb.init(
         project=project,
@@ -65,7 +62,7 @@ def init_wandb_run(model_name, dataset_name=None, epochs=None, output_dir=None, 
         name=run_name,
         config=config,
         mode=mode,
-        dir=wandb_dir,
+        dir="output",
     )
 
     class _WandbKerasEpochLogger(Callback):

@@ -149,7 +149,7 @@ class TransferModel:
         return X_balanced[shuffle_idx], y_balanced[shuffle_idx]
 
     @staticmethod
-    def _build_class_weight_map(y, min_weight=0.5, max_weight=8.0):
+    def _build_class_weight_map(y, min_weight=0.8, max_weight=2.5):
         y = np.asarray(y)
         classes, counts = np.unique(y, return_counts=True)
         total = float(np.sum(counts))
@@ -182,8 +182,6 @@ class TransferModel:
         if X_val.ndim == 4:
             X_val = np.expand_dims(X_val, axis=1)
 
-        y_train_original = np.asarray(y_train)
-
         if X_train.ndim == 5:
             X_train, y_train = cls._oversample_minority_classes(
                 X_train, y_train, min_target_ratio=0.45, max_multiplier=6
@@ -193,9 +191,8 @@ class TransferModel:
                 X_train, y_train, min_target_ratio=0.45, max_multiplier=6
             )
 
-        class_weight_map = cls._build_class_weight_map(y_train_original)
+        class_weight_map = cls._build_class_weight_map(y_train)
         sample_weights = cls._build_sample_weights(y_train, class_weight_map)
-        val_sample_weights = cls._build_sample_weights(y_val, class_weight_map)
         print(f"Class weights: {class_weight_map}")
 
         num_classes = len(np.unique(np.concatenate([y_train, y_val])))
@@ -223,7 +220,6 @@ class TransferModel:
         model.model.summary()
 
         reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=6, min_lr=1e-7, verbose=1)
-        early_stop = callbacks.EarlyStopping(monitor="val_loss", patience=14, restore_best_weights=True, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
             model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
@@ -239,7 +235,7 @@ class TransferModel:
             history_warmup = model.model.fit(
                 X_train,
                 y_train,
-                validation_data=(X_val, y_val, val_sample_weights),
+                validation_data=(X_val, y_val),
                 epochs=warmup_epochs,
                 batch_size=8,
                 sample_weight=sample_weights,
@@ -250,14 +246,14 @@ class TransferModel:
                 model.set_fine_tune_layers(trainable_backbone_layers=120)
                 model.compile(learning_rate=4e-5, loss="sparse_categorical_crossentropy")
 
-                finetune_callbacks = [reduce_lr, early_stop, save_best]
+                finetune_callbacks = [reduce_lr, save_best]
                 if wandb_callback is not None:
                     finetune_callbacks.append(wandb_callback)
 
                 history_finetune = model.model.fit(
                     X_train,
                     y_train,
-                    validation_data=(X_val, y_val, val_sample_weights),
+                    validation_data=(X_val, y_val),
                     initial_epoch=warmup_epochs,
                     epochs=epochs,
                     batch_size=8,
