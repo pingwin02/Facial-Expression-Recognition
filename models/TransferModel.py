@@ -170,7 +170,20 @@ class TransferModel:
         return sample_weights
 
     @classmethod
-    def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
+    def train(
+        cls,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        output_dir,
+        model_filename,
+        epochs,
+        label_map,
+        train_debugs=None,
+        val_debugs=None,
+        dataset_name=None,
+    ):
         wandb_run = None
         wandb_callback = None
 
@@ -270,7 +283,14 @@ class TransferModel:
 
             model.model.load_weights(model_filename)
             model.model.save(model_filename)
-            plot_metrics(history_dict, output_dir, model_name=cls.__name__)
+            plot_metrics(
+                history_dict,
+                output_dir,
+                model_name=cls.__name__,
+                training_debugs=train_debugs,
+                validation_debugs=val_debugs,
+                dataset_name=dataset_name,
+            )
 
             return history_dict
         finally:

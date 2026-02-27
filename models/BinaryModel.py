@@ -46,7 +46,20 @@ class BinaryModel:
         self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
     @classmethod
-    def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
+    def train(
+        cls,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        output_dir,
+        model_filename,
+        epochs,
+        label_map,
+        train_debugs=None,
+        val_debugs=None,
+        dataset_name=None,
+    ):
         wandb_run = None
         wandb_callback = None
 
@@ -69,7 +82,7 @@ class BinaryModel:
         weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_train_bin)
         class_weights = dict(zip(classes, weights))
 
-        model = cls()
+        model = cls(input_shape=tuple(X_train.shape[1:]))
         model.compile()
 
         wandb_run, wandb_callback = init_wandb_run(
@@ -103,7 +116,14 @@ class BinaryModel:
             )
 
             model.model.save(model_filename)
-            plot_metrics(history.history, output_dir, model_name=cls.__name__)
+            plot_metrics(
+                history.history,
+                output_dir,
+                model_name=cls.__name__,
+                training_debugs=train_debugs,
+                validation_debugs=val_debugs,
+                dataset_name=dataset_name,
+            )
             return history
         finally:
             finish_wandb_run(wandb_run, model_filename=model_filename)

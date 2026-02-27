@@ -53,7 +53,19 @@ def main():
         if args.epochs is None:
             print("Error: --epochs must be specified for training.")
             sys.exit(1)
-        model.train(X_train, y_train, X_val, y_val, OUTPUT_DIR, MODEL_PATH, args.epochs, label_map=label_map)
+        model.train(
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            OUTPUT_DIR,
+            MODEL_PATH,
+            args.epochs,
+            label_map=label_map,
+            train_debugs=train_debugs,
+            val_debugs=val_debugs,
+            dataset_name=args.input,
+        )
 
     if args.mode == "eval":
         if args.epochs is not None:

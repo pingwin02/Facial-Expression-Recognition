@@ -5,6 +5,33 @@ import os
 import textwrap
 
 
+def _summarize_frames_by_video(debugs):
+    frames_per_video = {}
+    frame_ids_per_video = {}
+
+    if not debugs:
+        return frames_per_video, frame_ids_per_video
+
+    for idx, debug in enumerate(debugs):
+        if not isinstance(debug, dict):
+            continue
+        video_name = debug.get("video")
+        if not video_name:
+            continue
+
+        frames_per_video[video_name] = int(frames_per_video.get(video_name, 0) + 1)
+
+        frame_idx = debug.get("frame_idx")
+        if frame_idx is None:
+            frame_idx = idx
+        frame_ids_per_video.setdefault(video_name, []).append(int(frame_idx))
+
+    for video_name in list(frame_ids_per_video.keys()):
+        frame_ids_per_video[video_name] = sorted(frame_ids_per_video[video_name])
+
+    return frames_per_video, frame_ids_per_video
+
+
 def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="confusion_matrix.png"):
     from sklearn.metrics import confusion_matrix
     import seaborn as sns
@@ -47,7 +74,14 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     plt.close()
 
 
-def plot_metrics(history, output_dir, model_name=None):
+def plot_metrics(
+    history,
+    output_dir,
+    model_name=None,
+    training_debugs=None,
+    validation_debugs=None,
+    dataset_name=None,
+):
     train_losses = history["loss"]
     val_losses = history.get("val_loss", [])
 
@@ -100,6 +134,23 @@ def plot_metrics(history, output_dir, model_name=None):
         "val_accuracy": [float(a) for a in val_acc],
         "accuracy_metric_name": acc_key,
     }
+
+    train_frames_per_video, train_frame_ids_per_video = _summarize_frames_by_video(training_debugs)
+    val_frames_per_video, val_frame_ids_per_video = _summarize_frames_by_video(validation_debugs)
+
+    metrics["dataset"] = dataset_name
+    metrics["model"] = model_name
+    metrics["data_summary"] = {
+        "training_videos": int(len(train_frames_per_video)),
+        "training_frames_total": int(sum(train_frames_per_video.values())),
+        "training_frames_per_video": train_frames_per_video,
+        "training_frame_ids_per_video": train_frame_ids_per_video,
+        "validation_videos": int(len(val_frames_per_video)),
+        "validation_frames_total": int(sum(val_frames_per_video.values())),
+        "validation_frames_per_video": val_frames_per_video,
+        "validation_frame_ids_per_video": val_frame_ids_per_video,
+    }
+
     metrics_filename = f"{model_name}_training_metrics.json" if model_name else "training_metrics.json"
     with open(os.path.join(output_dir, metrics_filename), "w") as f:
         json.dump(metrics, f, indent=2)

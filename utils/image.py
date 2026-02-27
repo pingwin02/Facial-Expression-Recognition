@@ -41,7 +41,7 @@ def detect_and_crop_face(frame, detector, predictor):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = detector(gray, 1)
 
-    target_img = gray
+    target_img = frame
     crop_box = None
     landmarks = None
 
@@ -62,12 +62,16 @@ def detect_and_crop_face(frame, detector, predictor):
         except Exception:
             pass
 
-        target_img = gray[y1:y2, x1:x2]
+        target_img = frame[y1:y2, x1:x2]
         crop_box = (x1, y1, x2, y2)
 
     resized = cv2.resize(target_img, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
+    if resized.ndim == 2:
+        resized = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+    else:
+        resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     normalized = resized.astype(np.float32) / 255.0
-    processed_frame = np.expand_dims(normalized, axis=-1)
+    processed_frame = normalized
 
     return processed_frame, crop_box, landmarks
 

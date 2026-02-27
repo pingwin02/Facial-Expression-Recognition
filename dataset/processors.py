@@ -226,7 +226,6 @@ def process_video_frames_with_frame_labels(
     filename_col,
     label_map,
     frames_per_video=100,
-    max_candidates=None,
     checkpoint_dir=None,
     checkpoint_prefix=None,
     save_checkpoint_every=1,
@@ -275,7 +274,7 @@ def process_video_frames_with_frame_labels(
             cap.release()
             continue
 
-        candidate_indices = _build_candidate_indices(total_frames, max_candidates=max_candidates)
+        candidate_indices = np.arange(total_frames, dtype=int)
         scored_candidates = []
         prev_gray = None
 
@@ -317,16 +316,16 @@ def process_video_frames_with_frame_labels(
                 continue
 
             face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
-            face_channel = np.squeeze(face)
-            if face_channel.ndim != 2:
+            if face.ndim != 3 or face.shape[-1] < 3:
                 continue
+            face_rgb = face[:, :, :3]
 
             if crop_box is not None and landmarks is not None:
                 landmark_mask = normalize_and_create_mask(landmarks, crop_box)
             else:
                 landmark_mask = np.zeros((IMG_HEIGHT, IMG_WIDTH), dtype=np.float32)
 
-            combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
+            combined_img = np.concatenate([face_rgb, landmark_mask[..., np.newaxis]], axis=-1).astype(np.float32)
 
             if first_run:
                 print(f"\nCombined shape: {combined_img.shape}")
@@ -405,12 +404,12 @@ def process_image_directory(
 
             if face is not None and crop_box is not None and landmarks is not None:
                 face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
-                face_channel = np.squeeze(face)
-                if face_channel.ndim != 2:
+                if face.ndim != 3 or face.shape[-1] < 3:
                     continue
+                face_rgb = face[:, :, :3]
 
                 landmark_mask = normalize_and_create_mask(landmarks, crop_box)
-                combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
+                combined_img = np.concatenate([face_rgb, landmark_mask[..., np.newaxis]], axis=-1).astype(np.float32)
 
                 if first_run:
                     print(f"\nCombined shape: {combined_img.shape}")
@@ -544,16 +543,16 @@ def process_video_sequences(
                 continue
 
             face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
-            face_channel = np.squeeze(face)
-            if face_channel.ndim != 2:
+            if face.ndim != 3 or face.shape[-1] < 3:
                 continue
+            face_rgb = face[:, :, :3]
 
             if crop_box is not None and landmarks is not None:
                 landmark_mask = normalize_and_create_mask(landmarks, crop_box)
             else:
                 landmark_mask = np.zeros((IMG_HEIGHT, IMG_WIDTH), dtype=np.float32)
 
-            combined_img = np.stack((face_channel, landmark_mask), axis=-1).astype(np.float32)
+            combined_img = np.concatenate([face_rgb, landmark_mask[..., np.newaxis]], axis=-1).astype(np.float32)
 
             if first_run:
                 print(f"\nCombined shape: {combined_img.shape}")
