@@ -87,7 +87,7 @@ class BinaryModel:
 
         wandb_run, wandb_callback = init_wandb_run(
             model_name=cls.__name__,
-            dataset_name=None,
+            dataset_name=dataset_name,
             epochs=epochs,
             output_dir=output_dir,
             extra_config={

@@ -149,7 +149,7 @@ class TransferModel:
         return X_balanced[shuffle_idx], y_balanced[shuffle_idx]
 
     @staticmethod
-    def _build_class_weight_map(y, min_weight=0.8, max_weight=2.5):
+    def _build_class_weight_map(y, min_weight=0.7, max_weight=4.0):
         y = np.asarray(y)
         classes, counts = np.unique(y, return_counts=True)
         total = float(np.sum(counts))
@@ -161,6 +161,33 @@ class TransferModel:
             class_weights[int(class_id)] = float(np.clip(raw, min_weight, max_weight))
 
         return class_weights
+
+    @staticmethod
+    def _make_weighted_sparse_categorical_focal_loss(class_weight_map, gamma=1.5):
+        class_ids = sorted(int(k) for k in class_weight_map.keys())
+        max_class_id = max(class_ids) if class_ids else 0
+        alpha = np.ones(max_class_id + 1, dtype=np.float32)
+        for class_id, weight in class_weight_map.items():
+            alpha[int(class_id)] = float(weight)
+
+        alpha_tensor = tf.constant(alpha, dtype=tf.float32)
+
+        def loss_fn(y_true, y_pred):
+            y_true = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+            y_pred = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+
+            num_classes = tf.shape(y_pred)[-1]
+            y_true_one_hot = tf.one_hot(y_true, depth=num_classes, dtype=tf.float32)
+
+            ce = tf.keras.losses.sparse_categorical_crossentropy(y_true, y_pred)
+            p_t = tf.reduce_sum(y_true_one_hot * y_pred, axis=-1)
+            alpha_t = tf.gather(alpha_tensor, y_true)
+
+            focal_factor = tf.pow(1.0 - p_t, gamma)
+            loss = alpha_t * focal_factor * ce
+            return tf.reduce_mean(loss)
+
+        return loss_fn
 
     @staticmethod
     def _build_sample_weights(y, class_weights):
@@ -205,7 +232,6 @@ class TransferModel:
             )
 
         class_weight_map = cls._build_class_weight_map(y_train)
-        sample_weights = cls._build_sample_weights(y_train, class_weight_map)
         print(f"Class weights: {class_weight_map}")
 
         num_classes = len(np.unique(np.concatenate([y_train, y_val])))
@@ -215,20 +241,25 @@ class TransferModel:
         warmup_epochs = min(max(8, epochs // 8), 20)
         warmup_epochs = min(warmup_epochs, max(1, epochs))
 
+        focal_loss = cls._make_weighted_sparse_categorical_focal_loss(class_weight_map, gamma=1.5)
+
         wandb_run, wandb_callback = init_wandb_run(
             model_name=cls.__name__,
-            dataset_name=None,
+            dataset_name=dataset_name,
             epochs=epochs,
             output_dir=output_dir,
             extra_config={
                 "num_classes": int(num_classes),
                 "input_shape": tuple(input_shape),
                 "warmup_epochs": int(warmup_epochs),
+                "loss": "weighted_sparse_categorical_focal",
+                "focal_gamma": 1.5,
+                "class_weights": {str(k): float(v) for k, v in class_weight_map.items()},
             },
         )
 
         model.set_fine_tune_layers(trainable_backbone_layers=0)
-        model.compile(learning_rate=3e-4, loss="sparse_categorical_crossentropy")
+        model.compile(learning_rate=3e-4, loss=focal_loss)
 
         model.model.summary()
 
@@ -251,13 +282,12 @@ class TransferModel:
                 validation_data=(X_val, y_val),
                 epochs=warmup_epochs,
                 batch_size=8,
-                sample_weight=sample_weights,
                 callbacks=warmup_callbacks,
             )
 
             if epochs > warmup_epochs:
                 model.set_fine_tune_layers(trainable_backbone_layers=120)
-                model.compile(learning_rate=4e-5, loss="sparse_categorical_crossentropy")
+                model.compile(learning_rate=4e-5, loss=focal_loss)
 
                 finetune_callbacks = [reduce_lr, save_best]
                 if wandb_callback is not None:
@@ -271,7 +301,6 @@ class TransferModel:
                     epochs=epochs,
                     batch_size=8,
                     callbacks=finetune_callbacks,
-                    sample_weight=sample_weights,
                 )
 
                 history_dict = history_warmup.history

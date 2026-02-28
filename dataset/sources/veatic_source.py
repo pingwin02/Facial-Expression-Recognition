@@ -4,7 +4,7 @@ import os
 import pandas as pd
 from collections import Counter
 
-from dataset.processors import process_video_frames_with_frame_labels
+from dataset.processors import cleanup_iteration_checkpoints, process_video_frames_with_frame_labels
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import build_distribution_result
 
@@ -188,5 +188,8 @@ class VEATICSource(DatasetSource):
             save_checkpoint_every=1,
             resume_from_checkpoint=True,
         )
+
+        cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_train_seed{seed}")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_val_seed{seed}")
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map

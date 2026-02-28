@@ -20,6 +20,29 @@ def _load_dotenv_file(dotenv_path=".env"):
                 os.environ[key] = value
 
 
+def _ensure_name_contains_parts(run_name, model_name, dataset_name):
+    model_part = str(model_name).strip() if model_name else "model"
+    dataset_part = str(dataset_name).strip() if dataset_name else "dataset"
+
+    normalized = str(run_name).strip() if run_name else ""
+    lower_name = normalized.lower()
+
+    missing_parts = []
+    if model_part.lower() not in lower_name:
+        missing_parts.append(model_part)
+    if dataset_part.lower() not in lower_name:
+        missing_parts.append(dataset_part)
+
+    if not normalized:
+        time_part = datetime.now().strftime("%Y%m%d-%H%M%S")
+        return f"{model_part}_{dataset_part}_{time_part}"
+
+    if missing_parts:
+        return f"{normalized}_{'_'.join(missing_parts)}"
+
+    return normalized
+
+
 def init_wandb_run(model_name, dataset_name=None, epochs=None, output_dir=None, extra_config=None):
     _load_dotenv_file(".env")
 
@@ -40,11 +63,11 @@ def init_wandb_run(model_name, dataset_name=None, epochs=None, output_dir=None, 
     entity = os.environ.get("WANDB_ENTITY", "").strip() or None
     mode = os.environ.get("WANDB_MODE", "online").strip() or "online"
 
-    run_name = os.environ.get("WANDB_RUN_NAME", "").strip()
-    if not run_name:
-        time_part = datetime.now().strftime("%Y%m%d-%H%M%S")
-        ds_part = dataset_name if dataset_name else "dataset"
-        run_name = f"{model_name}_{ds_part}_{time_part}"
+    run_name = _ensure_name_contains_parts(
+        os.environ.get("WANDB_RUN_NAME", "").strip(),
+        model_name=model_name,
+        dataset_name=dataset_name,
+    )
 
     config = {
         "model": model_name,
@@ -52,6 +75,14 @@ def init_wandb_run(model_name, dataset_name=None, epochs=None, output_dir=None, 
         "epochs": epochs,
         "output_dir": output_dir,
     }
+
+    try:
+        from dataset.loader import CACHE_VERSION
+
+        config["CACHE_VERSION"] = CACHE_VERSION
+    except Exception:
+        pass
+
     if isinstance(extra_config, dict):
         config.update(extra_config)
 

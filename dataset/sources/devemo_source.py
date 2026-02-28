@@ -3,6 +3,7 @@ import os
 import pandas as pd
 
 from dataset.processors import process_video_sequences
+from dataset.processors import cleanup_iteration_checkpoints
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import label_distribution_from_csv, label_distribution_from_json, split_data
 
@@ -88,5 +89,8 @@ class DevemoSource(DatasetSource):
             save_checkpoint_every=25,
             resume_from_checkpoint=True,
         )
+
+        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_train_seed{seed}_seq8")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_val_seed{seed}_seq8")
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map

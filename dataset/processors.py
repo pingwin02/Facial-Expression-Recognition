@@ -197,7 +197,7 @@ def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
     return next_index, X, y, debugs
 
 
-def _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix):
+def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix):
     if not checkpoint_dir or not checkpoint_prefix:
         return
     if not os.path.isdir(checkpoint_dir):
@@ -360,9 +360,6 @@ def process_video_frames_with_frame_labels(
             if checkpoint_path is not None:
                 print(f"Checkpoint saved: {checkpoint_path}")
 
-    if checkpoint_dir and checkpoint_prefix:
-        _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
-
     return np.array(X), np.array(y), debugs
 
 
@@ -430,9 +427,6 @@ def process_image_directory(
             )
             if checkpoint_path is not None:
                 print(f"Checkpoint saved: {checkpoint_path}")
-
-    if checkpoint_dir and checkpoint_prefix:
-        _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
 
     return np.array(X), np.array(y), debugs
 
@@ -598,8 +592,5 @@ def process_video_sequences(
             checkpoint_path = _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             if checkpoint_path is not None:
                 print(f"Checkpoint saved: {checkpoint_path}")
-
-    if checkpoint_dir and checkpoint_prefix:
-        _cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix)
 
     return np.array(X), np.array(y), debugs

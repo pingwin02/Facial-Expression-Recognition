@@ -1,6 +1,6 @@
 import os
 
-from dataset.processors import process_image_directory
+from dataset.processors import cleanup_iteration_checkpoints, process_image_directory
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import label_distribution_from_image_folders
 
@@ -53,5 +53,8 @@ class FER2013Source(DatasetSource):
             save_checkpoint_every=200,
             resume_from_checkpoint=True,
         )
+
+        cleanup_iteration_checkpoints(checkpoint_dir, f"fer2013_train_seed{seed}")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"fer2013_val_seed{seed}")
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map
