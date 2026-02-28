@@ -45,8 +45,8 @@ def detect_and_crop_face(frame, detector, predictor):
     crop_box = None
     landmarks = None
 
-    if len(faces) == 1:
-        face_rect = faces[0]
+    if len(faces) >= 1:
+        face_rect = max(faces, key=lambda rect: max(0, rect.width()) * max(0, rect.height()))
         x1, y1 = face_rect.left(), face_rect.top()
         x2, y2 = face_rect.right(), face_rect.bottom()
 

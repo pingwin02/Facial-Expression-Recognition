@@ -37,14 +37,6 @@ def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_H
     return mask
 
 
-def _build_candidate_indices(total_frames, max_candidates):
-    if max_candidates is None:
-        return np.arange(total_frames, dtype=int)
-    if total_frames <= max_candidates:
-        return np.arange(total_frames, dtype=int)
-    return np.linspace(0, total_frames - 1, max_candidates, dtype=int)
-
-
 def _center_window_indices(total_frames, target_count, center_fraction=0.5, window_fraction=0.45):
     if total_frames <= 0:
         return []
@@ -76,7 +68,7 @@ def _frame_quality_score(frame, prev_gray):
 def _has_face_detected(frame, detector):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = detector(gray, 1)
-    return len(faces) == 1
+    return len(faces) >= 1
 
 
 def _select_diverse_top_indices(scored_indices, target_count, total_frames):
@@ -437,7 +429,6 @@ def process_video_sequences(
     filename_col,
     label_map,
     sequence_length=8,
-    max_candidates=90,
     checkpoint_dir=None,
     checkpoint_prefix=None,
     save_checkpoint_every=1,
@@ -473,7 +464,7 @@ def process_video_sequences(
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
-        candidate_indices = _build_candidate_indices(total_frames, max_candidates=max_candidates)
+        candidate_indices = np.arange(total_frames, dtype=int)
         center_idx = (total_frames - 1) / 2.0
         sigma = max(3.0, total_frames * 0.22)
 

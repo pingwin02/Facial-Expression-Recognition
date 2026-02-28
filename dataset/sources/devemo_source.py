@@ -70,11 +70,10 @@ class DevemoSource(DatasetSource):
             video_dir,
             filename_col,
             label_map,
-            sequence_length=8,
-            max_candidates=90,
+            sequence_length=300,
             checkpoint_dir=checkpoint_dir,
-            checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}_seq8",
-            save_checkpoint_every=25,
+            checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}",
+            save_checkpoint_every=10,
             resume_from_checkpoint=True,
         )
         X_val, y_val, val_debugs = process_video_sequences(
@@ -82,15 +81,14 @@ class DevemoSource(DatasetSource):
             video_dir,
             filename_col,
             label_map,
-            sequence_length=8,
-            max_candidates=90,
+            sequence_length=300,
             checkpoint_dir=checkpoint_dir,
-            checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}_seq8",
-            save_checkpoint_every=25,
+            checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}",
+            save_checkpoint_every=10,
             resume_from_checkpoint=True,
         )
 
-        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_train_seed{seed}_seq8")
-        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_val_seed{seed}_seq8")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_train_seed{seed}")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_val_seed{seed}")
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map

@@ -5,7 +5,7 @@ import pickle
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-CACHE_VERSION = "video_v12_veatic_frame_labels_rgb"
+CACHE_VERSION = "video_v13_veatic_landmarks_rgb"
 
 
 def load_data(
