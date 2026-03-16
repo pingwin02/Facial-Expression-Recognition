@@ -2,6 +2,34 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import textwrap
+
+
+def _summarize_frames_by_video(debugs):
+    frames_per_video = {}
+    frame_ids_per_video = {}
+
+    if not debugs:
+        return frames_per_video, frame_ids_per_video
+
+    for idx, debug in enumerate(debugs):
+        if not isinstance(debug, dict):
+            continue
+        video_name = debug.get("video")
+        if not video_name:
+            continue
+
+        frames_per_video[video_name] = int(frames_per_video.get(video_name, 0) + 1)
+
+        frame_idx = debug.get("frame_idx")
+        if frame_idx is None:
+            frame_idx = idx
+        frame_ids_per_video.setdefault(video_name, []).append(int(frame_idx))
+
+    for video_name in list(frame_ids_per_video.keys()):
+        frame_ids_per_video[video_name] = sorted(frame_ids_per_video[video_name])
+
+    return frames_per_video, frame_ids_per_video
 
 
 def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="confusion_matrix.png"):
@@ -9,11 +37,20 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     import seaborn as sns
 
     cm = confusion_matrix(y_true, y_pred)
-    plt.figure(figsize=(10, 8))
+
+    def _wrap_label(label, width=14):
+        normalized = str(label).replace("+", " + ").replace("_", " ")
+        chunks = textwrap.wrap(normalized, width=width)
+        return "\n".join(chunks) if chunks else str(label)
 
     class_names = "auto"
     if label_map:
-        class_names = [k for k, v in sorted(label_map.items(), key=lambda item: item[1])]
+        class_names = [_wrap_label(k) for k, v in sorted(label_map.items(), key=lambda item: item[1])]
+
+    n_classes = cm.shape[0] if hasattr(cm, "shape") else 2
+    fig_w = max(10, min(24, 2.0 + 1.5 * n_classes))
+    fig_h = max(8, min(20, 2.0 + 1.3 * n_classes))
+    plt.figure(figsize=(fig_w, fig_h))
 
     sns.heatmap(
         cm,
@@ -26,6 +63,9 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     plt.ylabel("True Label")
     plt.xlabel("Predicted Label")
     plt.title("Confusion Matrix")
+    plt.xticks(rotation=35, ha="right", fontsize=9)
+    plt.yticks(rotation=0, fontsize=9)
+    plt.tight_layout()
 
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -34,7 +74,14 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     plt.close()
 
 
-def plot_metrics(history, output_dir, model_name=None):
+def plot_metrics(
+    history,
+    output_dir,
+    model_name=None,
+    training_debugs=None,
+    validation_debugs=None,
+    dataset_name=None,
+):
     train_losses = history["loss"]
     val_losses = history.get("val_loss", [])
 
@@ -87,6 +134,23 @@ def plot_metrics(history, output_dir, model_name=None):
         "val_accuracy": [float(a) for a in val_acc],
         "accuracy_metric_name": acc_key,
     }
+
+    train_frames_per_video, train_frame_ids_per_video = _summarize_frames_by_video(training_debugs)
+    val_frames_per_video, val_frame_ids_per_video = _summarize_frames_by_video(validation_debugs)
+
+    metrics["dataset"] = dataset_name
+    metrics["model"] = model_name
+    metrics["data_summary"] = {
+        "training_videos": int(len(train_frames_per_video)),
+        "training_frames_total": int(sum(train_frames_per_video.values())),
+        "training_frames_per_video": train_frames_per_video,
+        "training_frame_ids_per_video": train_frame_ids_per_video,
+        "validation_videos": int(len(val_frames_per_video)),
+        "validation_frames_total": int(sum(val_frames_per_video.values())),
+        "validation_frames_per_video": val_frames_per_video,
+        "validation_frame_ids_per_video": val_frame_ids_per_video,
+    }
+
     metrics_filename = f"{model_name}_training_metrics.json" if model_name else "training_metrics.json"
     with open(os.path.join(output_dir, metrics_filename), "w") as f:
         json.dump(metrics, f, indent=2)

@@ -20,6 +20,17 @@ def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
 
     rng = np.random.default_rng(seed)
 
+    first_label = df[label_col].iloc[0]
+    if isinstance(first_label, np.ndarray):
+        target_val_ids = max(1, int(round(len(unique_ids) * val_ratio)))
+        rng.shuffle(unique_ids)
+        val_ids = set(unique_ids[:target_val_ids])
+        train_ids = set(unique_ids[target_val_ids:])
+
+        val_df = df[df[id_col].isin(val_ids)].copy().reset_index(drop=True)
+        train_df = df[df[id_col].isin(train_ids)].copy().reset_index(drop=True)
+        return train_df, val_df
+
     id_label_counts_df = df.groupby([id_col, label_col]).size().unstack(fill_value=0).sort_index(axis=1)
     labels = list(id_label_counts_df.columns)
 
@@ -84,7 +95,7 @@ def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
                 ident
                 for ident in train_ids
                 if id_to_counts[ident][label_idx] > 0
-                   and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
+                and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
             ]
             if candidates and len(val_ids) < max_val_ids:
                 chosen = min(candidates, key=lambda ident: balance_error(current_val_counts + id_to_counts[ident]))
@@ -346,13 +357,13 @@ def label_distribution_from_image_folders(root_dir):
 
 
 def write_dataset_details_json(
-        dataset_name,
-        dataset_path,
-        download_url,
-        archive_name,
-        dataset_zip,
-        required_marker,
-        labels_distribution,
+    dataset_name,
+    dataset_path,
+    download_url,
+    archive_name,
+    dataset_zip,
+    required_marker,
+    labels_distribution,
 ):
     details_path = os.path.join(dataset_path, "!dataset_details.json")
     details = {

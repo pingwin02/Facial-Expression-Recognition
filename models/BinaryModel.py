@@ -5,6 +5,7 @@ from tensorflow.keras import layers, models, callbacks, optimizers
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
+from utils.wandb_utils import init_wandb_run, finish_wandb_run
 
 
 class BinaryModel:
@@ -45,7 +46,23 @@ class BinaryModel:
         self.model.compile(optimizer=optimizer, loss=loss, metrics=metrics)
 
     @classmethod
-    def train(cls, X_train, y_train, X_val, y_val, output_dir, model_filename, epochs, label_map):
+    def train(
+        cls,
+        X_train,
+        y_train,
+        X_val,
+        y_val,
+        output_dir,
+        model_filename,
+        epochs,
+        label_map,
+        train_debugs=None,
+        val_debugs=None,
+        dataset_name=None,
+    ):
+        wandb_run = None
+        wandb_callback = None
+
         if hasattr(X_train, "ndim") and X_train.ndim == 5:
             center_idx = X_train.shape[1] // 2
             X_train = X_train[:, center_idx]
@@ -65,26 +82,51 @@ class BinaryModel:
         weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_train_bin)
         class_weights = dict(zip(classes, weights))
 
-        model = cls()
+        model = cls(input_shape=tuple(X_train.shape[1:]))
         model.compile()
+
+        wandb_run, wandb_callback = init_wandb_run(
+            model_name=cls.__name__,
+            dataset_name=dataset_name,
+            epochs=epochs,
+            output_dir=output_dir,
+            extra_config={
+                "input_shape": tuple(X_train.shape[1:]) if hasattr(X_train, "shape") else None,
+                "class_weights": {str(k): float(v) for k, v in class_weights.items()},
+            },
+        )
 
         model.model.summary()
 
         reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6, verbose=0)
 
-        history = model.model.fit(
-            X_train,
-            y_train_bin,
-            validation_data=(X_val, y_val_bin),
-            epochs=epochs,
-            batch_size=64,
-            callbacks=[reduce_lr],
-            class_weight=class_weights,
-        )
+        try:
+            fit_callbacks = [reduce_lr]
+            if wandb_callback is not None:
+                fit_callbacks.append(wandb_callback)
 
-        model.model.save(model_filename)
-        plot_metrics(history.history, output_dir, model_name=cls.__name__)
-        return history
+            history = model.model.fit(
+                X_train,
+                y_train_bin,
+                validation_data=(X_val, y_val_bin),
+                epochs=epochs,
+                batch_size=64,
+                callbacks=fit_callbacks,
+                class_weight=class_weights,
+            )
+
+            model.model.save(model_filename)
+            plot_metrics(
+                history.history,
+                output_dir,
+                model_name=cls.__name__,
+                training_debugs=train_debugs,
+                validation_debugs=val_debugs,
+                dataset_name=dataset_name,
+            )
+            return history
+        finally:
+            finish_wandb_run(wandb_run, model_filename=model_filename)
 
     def predict(self, images_np):
         if hasattr(images_np, "ndim") and images_np.ndim == 5:
@@ -93,7 +135,7 @@ class BinaryModel:
         return (self.model.predict(images_np, verbose=0) > 0.5).astype("int32").flatten()
 
     @classmethod
-    def eval(cls, val, output_dir, label_map=None, dataset_name=None):
+    def eval(cls, val, output_dir, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
         model_prefix = cls.__name__.lower()
         loaded_model = find_and_load_model(model_prefix)
         if loaded_model is None:
@@ -106,4 +148,6 @@ class BinaryModel:
             model_name=cls.__name__,
             label_map=label_map,
             dataset_name=dataset_name,
+            dataset_path=dataset_path,
+            train_tuple=train_tuple,
         )

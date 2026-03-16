@@ -3,6 +3,7 @@ import os
 import pandas as pd
 
 from dataset.processors import process_video_sequences
+from dataset.processors import cleanup_iteration_checkpoints
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import label_distribution_from_csv, label_distribution_from_json, split_data
 
@@ -61,22 +62,33 @@ class DevemoSource(DatasetSource):
 
         train_df, val_df = split_data(df, id_col, seed=seed)
         label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
+        checkpoint_dir = os.path.join(self.input_dir, ".tmp")
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
         X_train, y_train, train_debugs = process_video_sequences(
             train_df,
             video_dir,
             filename_col,
             label_map,
-            sequence_length=8,
-            max_candidates=90,
+            sequence_length=300,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}",
+            save_checkpoint_every=10,
+            resume_from_checkpoint=True,
         )
         X_val, y_val, val_debugs = process_video_sequences(
             val_df,
             video_dir,
             filename_col,
             label_map,
-            sequence_length=8,
-            max_candidates=90,
+            sequence_length=300,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}",
+            save_checkpoint_every=10,
+            resume_from_checkpoint=True,
         )
+
+        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_train_seed{seed}")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_val_seed{seed}")
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map

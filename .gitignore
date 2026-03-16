@@ -4,3 +4,5 @@ downloads/
 input/
 output/
 *.png
+*.log
+.env

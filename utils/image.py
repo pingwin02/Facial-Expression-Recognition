@@ -2,6 +2,7 @@ import bz2
 import cv2
 import dlib
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 import os
 import urllib.request
@@ -36,16 +37,17 @@ def get_dlib_detector_predictor():
     return _detector, _predictor
 
 
-def detect_and_crop_face(frame, detector, predictor):
+def detect_and_crop_face(frame, detector, predictor, faces=None):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = detector(gray, 1)
+    if faces is None:
+        faces = detector(gray, 1)
 
-    target_img = gray
+    target_img = frame
     crop_box = None
     landmarks = None
 
-    if len(faces) == 1:
-        face_rect = faces[0]
+    if len(faces) >= 1:
+        face_rect = max(faces, key=lambda rect: max(0, rect.width()) * max(0, rect.height()))
         x1, y1 = face_rect.left(), face_rect.top()
         x2, y2 = face_rect.right(), face_rect.bottom()
 
@@ -61,17 +63,38 @@ def detect_and_crop_face(frame, detector, predictor):
         except Exception:
             pass
 
-        target_img = gray[y1:y2, x1:x2]
+        target_img = frame[y1:y2, x1:x2]
         crop_box = (x1, y1, x2, y2)
 
     resized = cv2.resize(target_img, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
+    if resized.ndim == 2:
+        resized = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
+    else:
+        resized = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     normalized = resized.astype(np.float32) / 255.0
-    processed_frame = np.expand_dims(normalized, axis=-1)
+    processed_frame = normalized
 
     return processed_frame, crop_box, landmarks
 
 
-def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, dataset_name, accuracy, filename):
+def save_sample_frames(
+    frames,
+    preds,
+    labels,
+    debugs,
+    output_dir,
+    model_name,
+    dataset_name,
+    accuracy,
+    filename,
+    highlight_correctness_bg=False,
+    cols=5,
+    group_size=None,
+    show_group_separator=False,
+):
+    def _pretty_class_name(value):
+        return str(value).replace("_", " ")
+
     class_map = {}
     for debug in debugs:
         if debug and "class_map" in debug and isinstance(debug["class_map"], dict):
@@ -89,7 +112,7 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
     if n == 0:
         print("No frames to save.")
         return
-    cols = 5
+    cols = max(1, int(cols))
     rows = (n + cols - 1) // cols
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 2.5, rows * 2.5))
 
@@ -102,7 +125,7 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
         title_parts.append(f"Accuracy: {accuracy * 100:.2f}%")
     title = " - ".join(title_parts) if title_parts else None
     if title:
-        fig.suptitle(title, fontsize=16)
+        fig.suptitle(title, fontsize=13, y=0.995)
 
     if rows == 1 and cols == 1:
         axes = np.array([[axes]])
@@ -151,9 +174,64 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
                 except Exception:
                     pass
 
-        pred_name = class_map.get(pred, str(pred))
-        label_name = class_map.get(label, str(label))
-        ax.set_title(f"actual: {label_name}\npredicted: {pred_name}", fontsize=8)
+        pred_name = _pretty_class_name(class_map.get(pred, str(pred)))
+        label_name = _pretty_class_name(class_map.get(label, str(label)))
+
+        top_caption = f"actual: {label_name}"
+        bottom_caption = f"predicted: {pred_name}"
+        top_caption_color = "#111111"
+
+        if highlight_correctness_bg:
+            is_correct = str(pred_name) == str(label_name)
+            top_caption = f"✓ {top_caption}" if is_correct else f"✗ {top_caption}"
+            top_caption_color = "#2e7d32" if is_correct else "#c62828"
+
+        ax.text(
+            0.5,
+            1.03,
+            top_caption,
+            transform=ax.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            fontweight="bold",
+            color=top_caption_color,
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.9),
+        )
+        if debug and isinstance(debug, dict) and debug.get("video"):
+            frame_idx = debug.get("frame_idx")
+            frame_total = debug.get("frame_total")
+            frame_part = None
+            if frame_idx is not None and frame_total is not None:
+                frame_part = f"frame: {int(frame_idx)}/{max(0, int(frame_total) - 1)}"
+            elif frame_idx is not None:
+                frame_part = f"frame: {int(frame_idx)}"
+
+            text_lines = [f"video: {debug['video']}", bottom_caption]
+            if frame_part:
+                text_lines.append(frame_part)
+
+            ax.text(
+                0.5,
+                -0.10,
+                "\n".join(text_lines),
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=7,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.8),
+            )
+        else:
+            ax.text(
+                0.5,
+                -0.10,
+                bottom_caption,
+                transform=ax.transAxes,
+                ha="center",
+                va="top",
+                fontsize=7,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.8),
+            )
         ax.axis("off")
 
     for idx in range(n, rows * cols):
@@ -161,7 +239,24 @@ def save_sample_frames(frames, preds, labels, debugs, output_dir, model_name, da
         ax = axes[r, c]
         ax.axis("off")
 
-    plt.tight_layout(rect=(0, 0, 1, 0.95))
+    if show_group_separator and group_size and group_size > 0 and rows > 1 and cols == int(group_size):
+        left = axes[0, 0].get_position().x0
+        right = axes[0, cols - 1].get_position().x1
+        for row_idx in range(1, rows):
+            y = axes[row_idx, 0].get_position().y1
+            fig.add_artist(
+                Line2D(
+                    [left, right],
+                    [y, y],
+                    transform=fig.transFigure,
+                    color="#7f8c8d",
+                    linewidth=1.2,
+                    alpha=0.55,
+                )
+            )
+
+    top_rect = 0.988 if title else 1.0
+    plt.tight_layout(rect=(0, 0, 1, top_rect))
     print(f"Saving sample grid PNG to {os.path.join(output_dir, filename)}")
     os.makedirs(output_dir, exist_ok=True)
     plt.savefig(os.path.join(output_dir, filename))
