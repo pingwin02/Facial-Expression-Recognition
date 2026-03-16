@@ -37,9 +37,10 @@ def get_dlib_detector_predictor():
     return _detector, _predictor
 
 
-def detect_and_crop_face(frame, detector, predictor):
+def detect_and_crop_face(frame, detector, predictor, faces=None):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = detector(gray, 1)
+    if faces is None:
+        faces = detector(gray, 1)
 
     target_img = frame
     crop_box = None

@@ -68,7 +68,7 @@ def _frame_quality_score(frame, prev_gray):
 def _has_face_detected(frame, detector):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     faces = detector(gray, 1)
-    return len(faces) >= 1
+    return len(faces) >= 1, faces
 
 
 def _select_diverse_top_indices(scored_indices, target_count, total_frames):
@@ -268,6 +268,7 @@ def process_video_frames_with_frame_labels(
 
         candidate_indices = np.arange(total_frames, dtype=int)
         scored_candidates = []
+        face_cache = {}
         prev_gray = None
 
         for frame_idx in candidate_indices:
@@ -276,10 +277,11 @@ def process_video_frames_with_frame_labels(
             if not ret:
                 continue
 
-            has_face = _has_face_detected(frame, detector)
+            has_face, faces = _has_face_detected(frame, detector)
             if not has_face:
                 continue
 
+            face_cache[int(frame_idx)] = faces
             quality, prev_gray = _frame_quality_score(frame, prev_gray)
             scored_candidates.append((int(frame_idx), float(quality)))
 
@@ -303,7 +305,8 @@ def process_video_frames_with_frame_labels(
             if not ret:
                 continue
 
-            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
+            cached_faces = face_cache.get(int(frame_idx))
+            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack, faces=cached_faces)
             if face is None:
                 continue
 
@@ -472,6 +475,7 @@ def process_video_sequences(
         quality_values = []
         temporal_values = []
         face_detection_values = []
+        face_cache = {}
         prev_gray = None
 
         for frame_idx in candidate_indices:
@@ -482,7 +486,9 @@ def process_video_sequences(
 
             quality, prev_gray = _frame_quality_score(frame, prev_gray)
             temporal_weight = float(np.exp(-((float(frame_idx) - center_idx) ** 2) / (2.0 * (sigma**2))))
-            has_face = _has_face_detected(frame, detector)
+            has_face, faces = _has_face_detected(frame, detector)
+            if has_face:
+                face_cache[int(frame_idx)] = faces
 
             quality_values.append((int(frame_idx), float(quality)))
             temporal_values.append((int(frame_idx), temporal_weight))
@@ -523,7 +529,8 @@ def process_video_sequences(
             if not ret:
                 continue
 
-            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
+            cached_faces = face_cache.get(int(frame_idx))
+            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack, faces=cached_faces)
             if face is None:
                 continue
 

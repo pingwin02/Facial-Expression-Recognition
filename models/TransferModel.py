@@ -195,14 +195,7 @@ class TransferModel:
         if X_val.ndim == 4:
             X_val = np.expand_dims(X_val, axis=1)
 
-        if X_train.ndim == 5:
-            X_train, y_train = cls._oversample_minority_classes(
-                X_train, y_train, min_target_ratio=0.45, max_multiplier=6
-            )
-        else:
-            X_train, y_train = cls._oversample_minority_classes(
-                X_train, y_train, min_target_ratio=0.45, max_multiplier=6
-            )
+        X_train, y_train = cls._oversample_minority_classes(X_train, y_train, min_target_ratio=0.45, max_multiplier=6)
 
         class_weight_map = cls._build_class_weight_map(y_train)
         sample_weights = cls._build_sample_weights(y_train, class_weight_map)
