@@ -130,24 +130,6 @@ def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
     return train_df, val_df
 
 
-def join_data(data_tuples):
-    valid_tuples = [t for t in data_tuples if t[0] is not None]
-
-    if not valid_tuples:
-        return np.array([]), np.array([]), []
-
-    Xs, ys, debug_lists = zip(*valid_tuples)
-
-    X_merged = np.concatenate(Xs, axis=0)
-    y_merged = np.concatenate(ys, axis=0)
-
-    debugs_merged = []
-    for dbg in debug_lists:
-        debugs_merged.extend(dbg)
-
-    return X_merged, y_merged, debugs_merged
-
-
 def print_stats(name, arr, label_map=None, split_arrays=None):
     print(f"\nDataset stats ({name}):")
 

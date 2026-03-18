@@ -268,7 +268,7 @@ def evaluate_model_on_data(
     val_tuple,
     output_dir,
     model_name="simple_sample_grid",
-    max_samples=10,
+    max_samples=64,
     label_map=None,
     dataset_name=None,
     dataset_path=None,
