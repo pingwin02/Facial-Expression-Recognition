@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import layers, models, callbacks, optimizers
 
+from dataset.loader import CACHE_VERSION
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
@@ -116,6 +117,11 @@ class BinaryModel:
             )
 
             model.model.save(model_filename)
+
+            summary_lines = []
+            model.model.summary(print_fn=lambda line: summary_lines.append(line))
+            model_summary = "\n".join(summary_lines)
+
             plot_metrics(
                 history.history,
                 output_dir,
@@ -123,6 +129,9 @@ class BinaryModel:
                 training_debugs=train_debugs,
                 validation_debugs=val_debugs,
                 dataset_name=dataset_name,
+                label_map=label_map,
+                cache_label=CACHE_VERSION,
+                model_summary=model_summary,
             )
             return history
         finally:
@@ -135,19 +144,20 @@ class BinaryModel:
         return (self.model.predict(images_np, verbose=0) > 0.5).astype("int32").flatten()
 
     @classmethod
-    def eval(cls, val, output_dir, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
+    def eval(cls, val, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
         model_prefix = cls.__name__.lower()
-        loaded_model = find_and_load_model(model_prefix)
+        loaded_model, model_dir = find_and_load_model(model_prefix)
         if loaded_model is None:
             return
 
         evaluate_model_on_data(
             loaded_model,
             val,
-            output_dir,
+            model_dir,
             model_name=cls.__name__,
             label_map=label_map,
             dataset_name=dataset_name,
             dataset_path=dataset_path,
             train_tuple=train_tuple,
+            cache_label=CACHE_VERSION,
         )

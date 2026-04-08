@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers, applications
 
+from dataset.loader import CACHE_VERSION
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
@@ -15,20 +16,22 @@ class TransferModel:
         data_augmentation = models.Sequential(
             [
                 layers.RandomFlip("horizontal"),
-                layers.RandomContrast(0.12),
-                layers.RandomRotation(0.06),
-                layers.RandomZoom(height_factor=(-0.08, 0.12), width_factor=(-0.08, 0.12)),
+                layers.RandomContrast(0.2),
+                layers.RandomBrightness(0.15),
+                layers.RandomRotation(0.08),
+                layers.RandomZoom(height_factor=(-0.1, 0.15), width_factor=(-0.1, 0.15)),
+                layers.RandomTranslation(height_factor=0.05, width_factor=0.05),
             ],
             name="frame_aug",
         )
 
         x = layers.TimeDistributed(data_augmentation, name="video_aug")(inputs)
 
-        x = layers.TimeDistributed(layers.Conv2D(24, (1, 1), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.Conv2D(16, (1, 1), padding="same", use_bias=False))(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
-        x = layers.TimeDistributed(layers.SeparableConv2D(24, (3, 3), padding="same", use_bias=False))(x)
+        x = layers.TimeDistributed(layers.SeparableConv2D(16, (3, 3), padding="same", use_bias=False))(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
@@ -36,18 +39,18 @@ class TransferModel:
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Activation("relu"))(x)
 
-        x = layers.TimeDistributed(layers.Resizing(128, 128, interpolation="bilinear"))(x)
+        x = layers.TimeDistributed(layers.Resizing(224, 224, interpolation="bilinear"))(x)
 
         x = layers.TimeDistributed(layers.Rescaling(scale=2.0, offset=-1.0))(x)
 
-        self.base_model = applications.EfficientNetV2B2(
-            input_shape=(128, 128, 3), include_top=False, weights="imagenet"
+        self.base_model = applications.MobileNetV3Small(
+            input_shape=(224, 224, 3), include_top=False, weights="imagenet", include_preprocessing=False
         )
 
         x = layers.TimeDistributed(self.base_model)(x)
         x = layers.TimeDistributed(layers.GlobalAveragePooling2D())(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
-        x = layers.TimeDistributed(layers.Dropout(0.35))(x)
+        x = layers.TimeDistributed(layers.Dropout(0.3))(x)
 
         timesteps = int(input_shape[0]) if isinstance(input_shape, tuple) and len(input_shape) > 0 else None
         if timesteps == 1:
@@ -63,16 +66,6 @@ class TransferModel:
             x = layers.Flatten()(x)
 
         x = layers.BatchNormalization()(x)
-        x = layers.Dropout(0.5)(x)
-
-        x = layers.Dense(512)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation("gelu")(x)
-        x = layers.Dropout(0.4)(x)
-
-        x = layers.Dense(256)(x)
-        x = layers.BatchNormalization()(x)
-        x = layers.Activation("gelu")(x)
         x = layers.Dropout(0.3)(x)
 
         outputs = layers.Dense(num_classes, activation="softmax")(x)
@@ -104,6 +97,23 @@ class TransferModel:
         model_loss = loss
         if model_loss == "sparse_categorical_crossentropy":
             model_loss = tf.keras.losses.SparseCategoricalCrossentropy()
+        elif model_loss == "focal":
+            model_loss = tf.keras.losses.SparseCategoricalCrossentropy(
+                from_logits=False,
+                reduction="none",
+            )
+
+            base_loss = model_loss
+
+            def focal_loss(y_true, y_pred, gamma=2.0):
+                ce = base_loss(y_true, y_pred)
+                y_true_int = tf.cast(tf.reshape(y_true, [-1]), tf.int32)
+                y_pred_clipped = tf.clip_by_value(y_pred, 1e-7, 1.0 - 1e-7)
+                pt = tf.gather(y_pred_clipped, y_true_int, batch_dims=1)
+                focal_weight = tf.pow(1.0 - pt, gamma)
+                return tf.reduce_mean(focal_weight * ce)
+
+            model_loss = focal_loss
 
         self.model.compile(optimizer=optimizer, loss=model_loss, metrics=metrics)
 
@@ -149,7 +159,7 @@ class TransferModel:
         return X_balanced[shuffle_idx], y_balanced[shuffle_idx]
 
     @staticmethod
-    def _build_class_weight_map(y, min_weight=0.8, max_weight=2.5):
+    def _build_class_weight_map(y, min_weight=0.5, max_weight=5.0):
         y = np.asarray(y)
         classes, counts = np.unique(y, return_counts=True)
         total = float(np.sum(counts))
@@ -195,18 +205,14 @@ class TransferModel:
         if X_val.ndim == 4:
             X_val = np.expand_dims(X_val, axis=1)
 
-        X_train, y_train = cls._oversample_minority_classes(X_train, y_train, min_target_ratio=0.45, max_multiplier=6)
-
-        class_weight_map = cls._build_class_weight_map(y_train)
-        sample_weights = cls._build_sample_weights(y_train, class_weight_map)
+        class_weight_map = cls._build_class_weight_map(y_train, min_weight=0.3, max_weight=10.0)
         print(f"Class weights: {class_weight_map}")
 
         num_classes = len(np.unique(np.concatenate([y_train, y_val])))
         input_shape = X_train.shape[1:]
 
         model = cls(input_shape=input_shape, num_classes=num_classes)
-        warmup_epochs = min(max(8, epochs // 8), 20)
-        warmup_epochs = min(warmup_epochs, max(1, epochs))
+        warmup_epochs = epochs
 
         wandb_run, wandb_callback = init_wandb_run(
             model_name=cls.__name__,
@@ -221,20 +227,22 @@ class TransferModel:
         )
 
         model.set_fine_tune_layers(trainable_backbone_layers=0)
-        model.compile(learning_rate=3e-4, loss="sparse_categorical_crossentropy")
+        model.compile(learning_rate=1e-3, loss="sparse_categorical_crossentropy")
 
         model.model.summary()
 
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=6, min_lr=1e-7, verbose=1)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=10, min_lr=1e-7, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
             model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
         )
 
+        early_stop = callbacks.EarlyStopping(monitor="val_loss", patience=25, restore_best_weights=True, verbose=1)
+
         print(f"Starting training TransferModel for {epochs} epochs...")
 
         try:
-            warmup_callbacks = [save_best, reduce_lr]
+            warmup_callbacks = [save_best, reduce_lr, early_stop]
             if wandb_callback is not None:
                 warmup_callbacks.append(wandb_callback)
 
@@ -243,16 +251,16 @@ class TransferModel:
                 y_train,
                 validation_data=(X_val, y_val),
                 epochs=warmup_epochs,
-                batch_size=8,
-                sample_weight=sample_weights,
+                batch_size=16,
+                class_weight=class_weight_map,
                 callbacks=warmup_callbacks,
             )
 
             if epochs > warmup_epochs:
-                model.set_fine_tune_layers(trainable_backbone_layers=120)
-                model.compile(learning_rate=4e-5, loss="sparse_categorical_crossentropy")
+                model.set_fine_tune_layers(trainable_backbone_layers=60)
+                model.compile(learning_rate=5e-5, loss="focal")
 
-                finetune_callbacks = [reduce_lr, save_best]
+                finetune_callbacks = [reduce_lr, save_best, early_stop]
                 if wandb_callback is not None:
                     finetune_callbacks.append(wandb_callback)
 
@@ -264,7 +272,7 @@ class TransferModel:
                     epochs=epochs,
                     batch_size=8,
                     callbacks=finetune_callbacks,
-                    sample_weight=sample_weights,
+                    class_weight=class_weight_map,
                 )
 
                 history_dict = history_warmup.history
@@ -276,6 +284,11 @@ class TransferModel:
 
             model.model.load_weights(model_filename)
             model.model.save(model_filename)
+
+            summary_lines = []
+            model.model.summary(print_fn=lambda line: summary_lines.append(line))
+            model_summary = "\n".join(summary_lines)
+
             plot_metrics(
                 history_dict,
                 output_dir,
@@ -283,6 +296,9 @@ class TransferModel:
                 training_debugs=train_debugs,
                 validation_debugs=val_debugs,
                 dataset_name=dataset_name,
+                label_map=label_map,
+                cache_label=CACHE_VERSION,
+                model_summary=model_summary,
             )
 
             return history_dict
@@ -296,10 +312,10 @@ class TransferModel:
         return np.argmax(self.model.predict(images_np, verbose=0), axis=1)
 
     @classmethod
-    def eval(cls, val_tuple, output_dir, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
+    def eval(cls, val_tuple, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
         model_prefix = cls.__name__.lower()
 
-        loaded_model = find_and_load_model(model_prefix)
+        loaded_model, model_dir = find_and_load_model(model_prefix)
         if loaded_model is None:
             print(f"Error: Model {cls.__name__} could not be loaded for evaluation.")
             return
@@ -307,10 +323,11 @@ class TransferModel:
         evaluate_model_on_data(
             loaded_model,
             val_tuple,
-            output_dir,
+            model_dir,
             model_name=cls.__name__,
             label_map=label_map,
             dataset_name=dataset_name,
             dataset_path=dataset_path,
             train_tuple=train_tuple,
+            cache_label=CACHE_VERSION,
         )

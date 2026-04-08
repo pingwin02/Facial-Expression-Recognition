@@ -268,11 +268,12 @@ def evaluate_model_on_data(
     val_tuple,
     output_dir,
     model_name="simple_sample_grid",
-    max_samples=64,
+    max_samples=30,
     label_map=None,
     dataset_name=None,
     dataset_path=None,
     train_tuple=None,
+    cache_label=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -341,13 +342,24 @@ def evaluate_model_on_data(
         "validation": _collect_metrics_dict(cm_true, cm_pred, label_map=display_map),
     }
 
-    save_confusion_matrix(
+    cm = save_confusion_matrix(
         cm_true,
         cm_pred,
         output_dir,
         label_map=display_map,
         filename=f"{model_name}_confusion_matrix.png",
     )
+
+    cm_labels = None
+    if display_map:
+        cm_labels = [str(k) for k, v in sorted(display_map.items(), key=lambda item: item[1])]
+    metrics_json["validation"]["confusion_matrix"] = cm.tolist()
+    if cm_labels:
+        metrics_json["validation"]["confusion_matrix_labels"] = cm_labels
+    if cache_label is not None:
+        metrics_json["cache_label"] = cache_label
+    if label_map is not None:
+        metrics_json["label_map"] = {str(k): int(v) for k, v in label_map.items()}
 
     if dataset_name == "veatic":
         selected_video_anchor_indices = _select_correct_video_indices(

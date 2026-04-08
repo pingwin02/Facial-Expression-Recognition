@@ -52,6 +52,7 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     fig_h = max(8, min(20, 2.0 + 1.3 * n_classes))
     plt.figure(figsize=(fig_w, fig_h))
 
+    annot_fontsize = max(14, min(22, 28 - n_classes))
     sns.heatmap(
         cm,
         annot=True,
@@ -59,12 +60,13 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
         cmap="Blues",
         xticklabels=class_names,
         yticklabels=class_names,
+        annot_kws={"size": annot_fontsize, "fontweight": "bold"},
     )
-    plt.ylabel("True Label")
-    plt.xlabel("Predicted Label")
-    plt.title("Confusion Matrix")
-    plt.xticks(rotation=35, ha="right", fontsize=9)
-    plt.yticks(rotation=0, fontsize=9)
+    plt.ylabel("True Label", fontsize=14)
+    plt.xlabel("Predicted Label", fontsize=14)
+    plt.title("Confusion Matrix", fontsize=16, fontweight="bold")
+    plt.xticks(rotation=35, ha="right", fontsize=13)
+    plt.yticks(rotation=0, fontsize=13)
     plt.tight_layout()
 
     if not os.path.exists(output_dir):
@@ -72,6 +74,8 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
 
     plt.savefig(os.path.join(output_dir, filename))
     plt.close()
+
+    return cm
 
 
 def plot_metrics(
@@ -81,6 +85,9 @@ def plot_metrics(
     training_debugs=None,
     validation_debugs=None,
     dataset_name=None,
+    label_map=None,
+    cache_label=None,
+    model_summary=None,
 ):
     train_losses = history["loss"]
     val_losses = history.get("val_loss", [])
@@ -140,6 +147,12 @@ def plot_metrics(
 
     metrics["dataset"] = dataset_name
     metrics["model"] = model_name
+    if cache_label is not None:
+        metrics["cache_label"] = cache_label
+    if label_map is not None:
+        metrics["label_map"] = {str(k): int(v) for k, v in label_map.items()}
+    if model_summary is not None:
+        metrics["model_architecture"] = model_summary
     metrics["data_summary"] = {
         "training_videos": int(len(train_frames_per_video)),
         "training_frames_total": int(sum(train_frames_per_video.values())),
