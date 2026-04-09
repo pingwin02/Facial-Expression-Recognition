@@ -45,7 +45,7 @@ class DevemoSource(DatasetSource):
 
     @staticmethod
     def _to_binary_label(label):
-        return "positive" if label in ("happiness",) else "negative"
+        return "positive" if label in ("happiness", "neutral") else "negative"
 
     def _build_dataframe(self):
         if self.plus_variant:
