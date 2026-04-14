@@ -44,8 +44,11 @@ class DevemoSource(DatasetSource):
         return label_distribution_from_csv(csv_path, delimiter=";", label_key="label", item_key="file")
 
     @staticmethod
-    def _to_binary_label(label):
-        return "positive" if label in ("happiness", "neutral") else "negative"
+    def _normalize_label(label):
+        if isinstance(label, str):
+            label = label.strip().lower()
+            return label if label else None
+        return None
 
     def _build_dataframe(self):
         if self.plus_variant:
@@ -53,12 +56,14 @@ class DevemoSource(DatasetSource):
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             df = pd.DataFrame(data)
-            df["label"] = df["label"].str.lower().map(self._to_binary_label)
+            df["label"] = df["label"].apply(self._normalize_label)
+            df = df[df["label"].notna()].reset_index(drop=True)
             return df, self.dataset_path, "participant", "filename"
 
         csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
         df = pd.read_csv(csv_path, sep=";")
-        df["label"] = df["label"].str.lower().map(self._to_binary_label)
+        df["label"] = df["label"].apply(self._normalize_label)
+        df = df[df["label"].notna()].reset_index(drop=True)
         return df, self.dataset_path, "id_examined", "file"
 
     def load(self, seed=42):
