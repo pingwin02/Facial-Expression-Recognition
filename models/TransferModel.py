@@ -237,12 +237,10 @@ class TransferModel:
             model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
         )
 
-        early_stop = callbacks.EarlyStopping(monitor="val_loss", patience=25, restore_best_weights=True, verbose=1)
-
         print(f"Starting training TransferModel for {epochs} epochs...")
 
         try:
-            warmup_callbacks = [save_best, reduce_lr, early_stop]
+            warmup_callbacks = [save_best, reduce_lr]
             if wandb_callback is not None:
                 warmup_callbacks.append(wandb_callback)
 
@@ -260,7 +258,7 @@ class TransferModel:
                 model.set_fine_tune_layers(trainable_backbone_layers=60)
                 model.compile(learning_rate=5e-5, loss="focal")
 
-                finetune_callbacks = [reduce_lr, save_best, early_stop]
+                finetune_callbacks = [reduce_lr, save_best]
                 if wandb_callback is not None:
                     finetune_callbacks.append(wandb_callback)
 

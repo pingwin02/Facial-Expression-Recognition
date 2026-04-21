@@ -268,7 +268,7 @@ def evaluate_model_on_data(
     val_tuple,
     output_dir,
     model_name="simple_sample_grid",
-    max_samples=30,
+    max_samples=9,
     label_map=None,
     dataset_name=None,
     dataset_path=None,
@@ -444,9 +444,7 @@ def evaluate_model_on_data(
         accuracy=accuracy,
         filename=f"{model_name}_samples.png",
         highlight_correctness_bg=True,
-        cols=10,
-        group_size=10,
-        show_group_separator=False,
+        cols=3,
     )
 
     if dataset_name == "veatic" and dataset_path is not None:

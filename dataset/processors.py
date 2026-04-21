@@ -13,6 +13,19 @@ from utils.image import get_dlib_detector_predictor, detect_and_crop_face
 IMG_HEIGHT = 96
 IMG_WIDTH = 96
 
+NUM_SAMPLE_FRAMES = 5
+CENTER_IDX = NUM_SAMPLE_FRAMES // 2
+
+TEMPORAL_TINTS = [
+    np.array([1.0, 0.1, 0.2], dtype=np.float32),
+    np.array([0.2, 1.0, 0.1], dtype=np.float32),
+    None,
+    np.array([0.1, 0.6, 1.0], dtype=np.float32),
+    np.array([0.3, 0.1, 1.0], dtype=np.float32),
+]
+
+TEMPORAL_ALPHAS = [1.2, 0.9, 0.0, 0.9, 1.2]
+
 
 def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_HEIGHT)):
     x1, y1, x2, y2 = crop_box
@@ -409,12 +422,137 @@ def process_image_directory(
     return np.array(X), np.array(y), debugs
 
 
+def _try_detect_face_at(cap, frame_idx, detector_pack):
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+    ret, frame = cap.read()
+    if not ret:
+        return None
+    face, crop_box, _ = detect_and_crop_face(frame, *detector_pack)
+    if face is None or face.ndim != 3 or face.shape[-1] < 3 or crop_box is None:
+        return None
+    return face[:, :, :3].astype(np.float32)
+
+
+def _read_raw_frame(cap, frame_idx):
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+    ret, frame = cap.read()
+    if not ret:
+        return None
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(frame_rgb, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
+    return (resized / 255.0).astype(np.float32)
+
+
+def _sample_faces_from_video(video_path, detector_pack):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None, None
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames <= 0:
+        cap.release()
+        return None, None
+
+    sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+
+    sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
+
+    if any(f is None for f in sampled_faces):
+        sampled_faces = [_read_raw_frame(cap, idx) for idx in sample_indices]
+
+    fallback = None
+    for f in sampled_faces:
+        if f is not None:
+            fallback = f
+            break
+
+    if fallback is None:
+        cap.release()
+        return None, None
+
+    sampled_faces = [f if f is not None else fallback for f in sampled_faces]
+
+    return sample_indices, sampled_faces
+
+
+def _to_grayscale_rgb(face_rgb):
+    gray = np.dot(face_rgb[..., :3], np.array([0.299, 0.587, 0.114], dtype=np.float32))
+    gray = np.clip(gray, 0.0, 1.0).astype(np.float32)
+    return np.repeat(gray[..., np.newaxis], 3, axis=-1)
+
+
+def _compose_temporal_chromatic(sampled_faces, include_preview=False):
+    center_face = sampled_faces[CENTER_IDX]
+    if center_face is None:
+        for offset in range(1, NUM_SAMPLE_FRAMES):
+            for candidate in [CENTER_IDX - offset, CENTER_IDX + offset]:
+                if 0 <= candidate < NUM_SAMPLE_FRAMES and sampled_faces[candidate] is not None:
+                    center_face = sampled_faces[candidate]
+                    break
+            if center_face is not None:
+                break
+    if center_face is None:
+        return None
+
+    base_gray = _to_grayscale_rgb(center_face)
+    result = base_gray.copy()
+
+    diff_layers = None
+    if include_preview:
+        diff_layers = [None] * NUM_SAMPLE_FRAMES
+        diff_layers[CENTER_IDX] = base_gray.copy()
+
+    for i in range(NUM_SAMPLE_FRAMES):
+        if TEMPORAL_TINTS[i] is None:
+            continue
+        frame = sampled_faces[i]
+        if frame is None:
+            continue
+
+        color = TEMPORAL_TINTS[i]
+        alpha = TEMPORAL_ALPHAS[i]
+
+        diff = np.abs(frame - center_face)
+        diff_magnitude = np.mean(diff, axis=-1, keepdims=True)
+        colored_diff = diff_magnitude * color.reshape(1, 1, 3)
+
+        if include_preview:
+            diff_layers[i] = np.clip(alpha * colored_diff, 0.0, 1.0)
+
+        result = result + alpha * colored_diff
+
+    result = np.clip(result, 0.0, 1.0).astype(np.float32)
+
+    if include_preview:
+        return result, base_gray, diff_layers
+    return result
+
+
+def temporal_encoding_preview_from_video(video_path):
+    detector_pack = get_dlib_detector_predictor()
+    sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack)
+    if sample_indices is None:
+        raise RuntimeError(f"Cannot read frames from video: {video_path}")
+
+    pack = _compose_temporal_chromatic(sampled_faces, include_preview=True)
+    if pack is None:
+        raise RuntimeError("No detectable faces in sampled frames.")
+
+    result, base_gray, diff_layers = pack
+    return {
+        "encoded_frame": result,
+        "base_gray": base_gray,
+        "diff_layers": diff_layers,
+        "sample_indices": sample_indices,
+        "sampled_faces": sampled_faces,
+    }
+
+
 def process_video_temporal_encoding(
     df,
     video_dir,
     filename_col,
     label_map,
-    num_sample_frames=5,
     checkpoint_dir=None,
     checkpoint_prefix=None,
     save_checkpoint_every=1,
@@ -426,21 +564,6 @@ def process_video_temporal_encoding(
         start_index, X, y, debugs = 0, [], [], []
 
     detector_pack = get_dlib_detector_predictor()
-    base_idx = num_sample_frames // 2
-
-    temporal_tints = []
-    for i in range(num_sample_frames):
-        if i == base_idx:
-            temporal_tints.append(None)
-            continue
-        distance = abs(i - base_idx)
-        alpha = 0.4 - (distance - 1) * 0.15
-        alpha = max(0.1, min(0.5, alpha))
-        if i < base_idx:
-            color = np.array([1.0, 0.2, 0.1])
-        else:
-            color = np.array([0.1, 0.2, 1.0])
-        temporal_tints.append((color, alpha))
 
     first_run = True
 
@@ -454,69 +577,17 @@ def process_video_temporal_encoding(
         video_path = os.path.join(video_dir, video_name)
         label = row["label"] if label_map is None else label_map.get(row["label"], 0)
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
+        sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack)
+        if sample_indices is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames <= 0:
-            cap.release()
+        result = _compose_temporal_chromatic(sampled_faces)
+        if result is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
-
-        sample_indices = np.linspace(0, total_frames - 1, num_sample_frames, dtype=int).tolist()
-
-        sampled_faces = []
-        for frame_idx in sample_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            ret, frame = cap.read()
-            if not ret:
-                sampled_faces.append(None)
-                continue
-
-            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack)
-            if face is None or face.ndim != 3 or face.shape[-1] < 3:
-                sampled_faces.append(None)
-                continue
-
-            sampled_faces.append(face[:, :, :3].astype(np.float32))
-
-        cap.release()
-
-        base_face = sampled_faces[base_idx]
-        if base_face is None:
-            for offset in range(1, num_sample_frames):
-                for candidate in [base_idx - offset, base_idx + offset]:
-                    if 0 <= candidate < num_sample_frames and sampled_faces[candidate] is not None:
-                        base_face = sampled_faces[candidate]
-                        break
-                if base_face is not None:
-                    break
-
-        if base_face is None:
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
-            continue
-
-        result = base_face.copy()
-
-        for i, tint_info in enumerate(temporal_tints):
-            if tint_info is None:
-                continue
-            frame = sampled_faces[i]
-            if frame is None:
-                continue
-
-            color, alpha = tint_info
-            diff = np.abs(frame - base_face)
-            diff_magnitude = np.mean(diff, axis=-1, keepdims=True)
-            colored_diff = diff_magnitude * color.reshape(1, 1, 3)
-            result = result + alpha * colored_diff
-
-        result = np.clip(result, 0.0, 1.0)
 
         if first_run:
             print(f"\nTemporal encoding shape: {result.shape}")
@@ -528,7 +599,6 @@ def process_video_temporal_encoding(
             {
                 "video": video_name,
                 "sample_indices": sample_indices,
-                "base_frame_idx": int(sample_indices[base_idx]),
             }
         )
 

@@ -9,6 +9,8 @@ from dataset.utils import label_distribution_from_csv, label_distribution_from_j
 
 
 class DevemoSource(DatasetSource):
+    POSITIVE_LABELS = {"happiness", "neutral"}
+
     def __init__(self, input_dir, plus_variant=False):
         super().__init__(input_dir)
         self.plus_variant = plus_variant
@@ -47,7 +49,11 @@ class DevemoSource(DatasetSource):
     def _normalize_label(label):
         if isinstance(label, str):
             label = label.strip().lower()
-            return label if label else None
+            if not label:
+                return None
+            if label in DevemoSource.POSITIVE_LABELS:
+                return "positive"
+            return "negative"
         return None
 
     def _build_dataframe(self):
@@ -79,7 +85,6 @@ class DevemoSource(DatasetSource):
             video_dir,
             filename_col,
             label_map,
-            num_sample_frames=5,
             checkpoint_dir=checkpoint_dir,
             checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}",
             save_checkpoint_every=10,
@@ -90,7 +95,6 @@ class DevemoSource(DatasetSource):
             video_dir,
             filename_col,
             label_map,
-            num_sample_frames=5,
             checkpoint_dir=checkpoint_dir,
             checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}",
             save_checkpoint_every=10,
