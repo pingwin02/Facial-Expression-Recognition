@@ -125,40 +125,6 @@ class TransferModel:
         return X
 
     @staticmethod
-    def _oversample_minority_classes(X, y, min_target_ratio=0.35, max_multiplier=8, seed=42):
-        y = np.asarray(y)
-        classes, counts = np.unique(y, return_counts=True)
-        if len(classes) <= 1:
-            return X, y
-
-        max_count = int(np.max(counts))
-        rng = np.random.default_rng(seed)
-
-        extra_indices = []
-        for class_id, class_count in zip(classes, counts):
-            target_from_ratio = int(max_count * min_target_ratio)
-            target_from_multiplier = int(class_count * max_multiplier)
-            target_count = max(class_count, min(target_from_ratio, target_from_multiplier))
-
-            if target_count <= class_count:
-                continue
-
-            class_indices = np.where(y == class_id)[0]
-            add_count = int(target_count - class_count)
-            sampled = rng.choice(class_indices, size=add_count, replace=True)
-            extra_indices.append(sampled)
-
-        if not extra_indices:
-            return X, y
-
-        extra_indices = np.concatenate(extra_indices)
-        X_balanced = np.concatenate([X, X[extra_indices]], axis=0)
-        y_balanced = np.concatenate([y, y[extra_indices]], axis=0)
-
-        shuffle_idx = rng.permutation(len(y_balanced))
-        return X_balanced[shuffle_idx], y_balanced[shuffle_idx]
-
-    @staticmethod
     def _build_class_weight_map(y, min_weight=0.5, max_weight=5.0):
         y = np.asarray(y)
         classes, counts = np.unique(y, return_counts=True)
@@ -171,13 +137,6 @@ class TransferModel:
             class_weights[int(class_id)] = float(np.clip(raw, min_weight, max_weight))
 
         return class_weights
-
-    @staticmethod
-    def _build_sample_weights(y, class_weights):
-        y = np.asarray(y)
-        sample_weights = np.array([class_weights.get(int(lbl), 1.0) for lbl in y], dtype=np.float32)
-
-        return sample_weights
 
     @classmethod
     def train(

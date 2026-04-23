@@ -39,26 +39,6 @@ def get_quadrant_color(quadrant):
     return colors.get(quadrant, "#000000")
 
 
-def get_quadrant_label(quadrant):
-    labels = {
-        "high_arousal_high_valence": "High Arousal + High Valence\n(Excited, Happy)",
-        "high_arousal_low_valence": "High Arousal + Low Valence\n(Angry, Stressed)",
-        "low_arousal_high_valence": "Low Arousal + High Valence\n(Calm, Content)",
-        "low_arousal_low_valence": "Low Arousal + Low Valence\n(Sad, Bored)",
-    }
-    return labels.get(quadrant, quadrant)
-
-
-def get_quadrant_code(quadrant):
-    codes = {
-        "high_arousal_high_valence": "Q1",
-        "high_arousal_low_valence": "Q2",
-        "low_arousal_high_valence": "Q3",
-        "low_arousal_low_valence": "Q4",
-    }
-    return codes.get(quadrant, quadrant)
-
-
 def plot_veatic_frame_label_timeline(arousal_seq, valence_seq, video_name, output_path=None, threshold=0.0):
     n = min(len(arousal_seq), len(valence_seq))
     if n == 0:
