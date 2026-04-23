@@ -7,8 +7,8 @@ import numpy as np
 import os
 import urllib.request
 
-IMG_HEIGHT = 96
-IMG_WIDTH = 96
+IMG_HEIGHT = 224
+IMG_WIDTH = 224
 CHANNELS = 1
 
 _detector = None
@@ -66,7 +66,7 @@ def detect_and_crop_face(frame, detector, predictor, faces=None):
         target_img = frame[y1:y2, x1:x2]
         crop_box = (x1, y1, x2, y2)
 
-    resized = cv2.resize(target_img, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(target_img, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
     if resized.ndim == 2:
         resized = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
     else:

@@ -142,8 +142,8 @@ def plot_metrics(
         "accuracy_metric_name": acc_key,
     }
 
-    train_frames_per_video, train_frame_ids_per_video = _summarize_frames_by_video(training_debugs)
-    val_frames_per_video, val_frame_ids_per_video = _summarize_frames_by_video(validation_debugs)
+    train_frames_per_video, _ = _summarize_frames_by_video(training_debugs)
+    val_frames_per_video, _ = _summarize_frames_by_video(validation_debugs)
 
     metrics["dataset"] = dataset_name
     metrics["model"] = model_name
@@ -156,12 +156,8 @@ def plot_metrics(
     metrics["data_summary"] = {
         "training_videos": int(len(train_frames_per_video)),
         "training_frames_total": int(sum(train_frames_per_video.values())),
-        "training_frames_per_video": train_frames_per_video,
-        "training_frame_ids_per_video": train_frame_ids_per_video,
         "validation_videos": int(len(val_frames_per_video)),
         "validation_frames_total": int(sum(val_frames_per_video.values())),
-        "validation_frames_per_video": val_frames_per_video,
-        "validation_frame_ids_per_video": val_frame_ids_per_video,
     }
 
     metrics_filename = f"{model_name}_training_metrics.json" if model_name else "training_metrics.json"

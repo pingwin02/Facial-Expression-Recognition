@@ -32,8 +32,20 @@ def _is_interactive_stdin():
     return bool(getattr(sys.stdin, "isatty", lambda: False)())
 
 
-def find_and_load_model(model_prefix="SimpleModel"):
-    print(f"Searching for models matching '{model_prefix}'...")
+def _path_has_dataset_segment(path, dataset_name):
+    if not dataset_name:
+        return True
+
+    normalized = os.path.normpath(path).replace("\\", "/").lower()
+    parts = [part for part in normalized.split("/") if part]
+    return str(dataset_name).strip().lower() in parts
+
+
+def find_and_load_model(model_prefix="SimpleModel", dataset_name=None):
+    if dataset_name:
+        print(f"Searching for models matching '{model_prefix}' and dataset '{dataset_name}'...")
+    else:
+        print(f"Searching for models matching '{model_prefix}'...")
 
     models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
     all_models = [path for path in models if "backup" not in path.lower()]
@@ -41,14 +53,17 @@ def find_and_load_model(model_prefix="SimpleModel"):
     candidates = []
     for path in all_models:
         normalized_path = path.lower()
-        if model_prefix.lower() in normalized_path in normalized_path:
+        if model_prefix.lower() in normalized_path and _path_has_dataset_segment(path, dataset_name):
             candidates.append(path)
 
     candidates.sort(key=os.path.getmtime, reverse=True)
 
     if not candidates:
-        print(f"Error: No trained models found matching prefix '{model_prefix}'.")
-        return None
+        if dataset_name:
+            print(f"Error: No trained models found matching prefix '{model_prefix}' for dataset '{dataset_name}'.")
+        else:
+            print(f"Error: No trained models found matching prefix '{model_prefix}'.")
+        return None, None
 
     selected_path = candidates[0]
 

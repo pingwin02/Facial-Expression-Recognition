@@ -10,8 +10,8 @@ from tqdm import tqdm
 
 from utils.image import get_dlib_detector_predictor, detect_and_crop_face
 
-IMG_HEIGHT = 96
-IMG_WIDTH = 96
+IMG_HEIGHT = 224
+IMG_WIDTH = 224
 
 NUM_SAMPLE_FRAMES = 5
 CENTER_IDX = NUM_SAMPLE_FRAMES // 2
@@ -106,17 +106,29 @@ def _map_video_frame_to_sequence_index(frame_idx, total_frames, sequence_length)
     return int(np.clip(mapped, 0, sequence_length - 1))
 
 
-def _checkpoint_path(checkpoint_dir, checkpoint_prefix, iteration):
-    return os.path.join(checkpoint_dir, f"{checkpoint_prefix}_iter{int(iteration):06d}.tmp")
+def _checkpoint_size_tag(size_tag=None):
+    if size_tag:
+        return re.sub(r"[^a-zA-Z0-9x_-]", "_", str(size_tag))
+    return f"{IMG_WIDTH}x{IMG_HEIGHT}"
 
 
-def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix):
+def _checkpoint_pattern(checkpoint_prefix, size_tag=None):
+    safe_size_tag = re.escape(_checkpoint_size_tag(size_tag))
+    return re.compile(rf"^{re.escape(checkpoint_prefix)}_{safe_size_tag}_iter(\d+)\.tmp$")
+
+
+def _checkpoint_path(checkpoint_dir, checkpoint_prefix, iteration, size_tag=None):
+    safe_size_tag = _checkpoint_size_tag(size_tag)
+    return os.path.join(checkpoint_dir, f"{checkpoint_prefix}_{safe_size_tag}_iter{int(iteration):06d}.tmp")
+
+
+def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
     if not checkpoint_dir or not checkpoint_prefix:
         return None
     if not os.path.isdir(checkpoint_dir):
         return None
 
-    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
     latest_iter = -1
     latest_path = None
 
@@ -139,12 +151,13 @@ def _save_iteration_checkpoint(
     X,
     y,
     debugs,
+    size_tag=None,
 ):
     if not checkpoint_dir or not checkpoint_prefix:
         return None
 
     os.makedirs(checkpoint_dir, exist_ok=True)
-    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index)
+    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index, size_tag=size_tag)
     payload = {
         "next_index": int(next_index),
         "X": X,
@@ -155,7 +168,7 @@ def _save_iteration_checkpoint(
     with open(path, "wb") as f:
         pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
     for filename in os.listdir(checkpoint_dir):
         match = pattern.match(filename)
         if not match:
@@ -171,8 +184,8 @@ def _save_iteration_checkpoint(
     return path
 
 
-def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
-    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix)
+def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
+    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=size_tag)
     if latest_path is None:
         return 0, [], [], []
 
@@ -189,13 +202,13 @@ def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
     return next_index, X, y, debugs
 
 
-def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix):
+def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix, size_tag=None):
     if not checkpoint_dir or not checkpoint_prefix:
         return
     if not os.path.isdir(checkpoint_dir):
         return
 
-    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
     removed_count = 0
 
     for filename in os.listdir(checkpoint_dir):
@@ -310,7 +323,6 @@ def process_video_frames_with_frame_labels(
             if face is None:
                 continue
 
-            face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
             if face.ndim != 3 or face.shape[-1] < 3:
                 continue
             face_rgb = face[:, :, :3]
@@ -393,7 +405,6 @@ def process_image_directory(
             face, crop_box, landmarks = detect_and_crop_face(image, *detector_pack)
 
             if face is not None and crop_box is not None and landmarks is not None:
-                face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
                 if face.ndim != 3 or face.shape[-1] < 3:
                     continue
                 face_rgb = face[:, :, :3]
@@ -448,31 +459,31 @@ def _sample_faces_from_video(video_path, detector_pack):
     if not cap.isOpened():
         return None, None
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    if total_frames <= 0:
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            return None, None
+
+        sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+
+        sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
+
+        if any(f is None for f in sampled_faces):
+            sampled_faces = [_read_raw_frame(cap, idx) for idx in sample_indices]
+
+        fallback = None
+        for f in sampled_faces:
+            if f is not None:
+                fallback = f
+                break
+
+        if fallback is None:
+            return None, None
+
+        sampled_faces = [f if f is not None else fallback for f in sampled_faces]
+        return sample_indices, sampled_faces
+    finally:
         cap.release()
-        return None, None
-
-    sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
-
-    sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
-
-    if any(f is None for f in sampled_faces):
-        sampled_faces = [_read_raw_frame(cap, idx) for idx in sample_indices]
-
-    fallback = None
-    for f in sampled_faces:
-        if f is not None:
-            fallback = f
-            break
-
-    if fallback is None:
-        cap.release()
-        return None, None
-
-    sampled_faces = [f if f is not None else fallback for f in sampled_faces]
-
-    return sample_indices, sampled_faces
 
 
 def _to_grayscale_rgb(face_rgb):

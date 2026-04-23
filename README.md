@@ -42,7 +42,7 @@ python main.py --input devemo+ --mode eval --model TransferModel
 Useful values:
 
 - `--input`: `devemo`, `devemo+`, `fer2013` and other
-- `--model`: `TransferModel`, `BinaryModel` and other
+- `--model`: `TransferModel` and other
 
 ### Optional: Weights & Biases (wandb) logging
 
@@ -75,6 +75,7 @@ Parameters:
 - `-m` model index from menu
 - `-i` input index from menu
 - `-M` mode: `train`, `eval` or `both` (default `both`)
+- `-l` loops (default `1`)
 
 ## Useful commands
 

@@ -5,7 +5,7 @@ import pickle
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-CACHE_VERSION = "video_v20_temporal_chromatic"
+CACHE_VERSION = "video_v21_negative_others"
 
 
 def load_data(

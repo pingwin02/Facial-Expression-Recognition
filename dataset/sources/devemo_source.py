@@ -5,11 +5,11 @@ import pandas as pd
 from dataset.processors import process_video_temporal_encoding
 from dataset.processors import cleanup_iteration_checkpoints
 from dataset.sources.base_source import DatasetSource
-from dataset.utils import label_distribution_from_csv, label_distribution_from_json, split_data
+from dataset.utils import build_distribution_result, split_data
 
 
 class DevemoSource(DatasetSource):
-    POSITIVE_LABELS = {"happiness", "neutral"}
+    NEGATIVE_LABELS = {"anger", "confusion", "surprise", "disgust"}
 
     def __init__(self, input_dir, plus_variant=False):
         super().__init__(input_dir)
@@ -40,10 +40,29 @@ class DevemoSource(DatasetSource):
     def label_distribution(self):
         if self.plus_variant:
             json_path = os.path.join(self.dataset_path, "devemo+.json")
-            return label_distribution_from_json(json_path, label_key="label", item_key="filename")
+            if not os.path.exists(json_path):
+                return None
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            df = pd.DataFrame(data)
+            if "label" not in df:
+                return None
+
+            normalized = df["label"].apply(self._normalize_label).dropna()
+            return build_distribution_result(normalized.value_counts().to_dict())
 
         csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
-        return label_distribution_from_csv(csv_path, delimiter=";", label_key="label", item_key="file")
+        if not os.path.exists(csv_path):
+            return None
+
+        df = pd.read_csv(csv_path, sep=";")
+        if "label" not in df:
+            return None
+
+        normalized = df["label"].apply(self._normalize_label).dropna()
+        return build_distribution_result(normalized.value_counts().to_dict())
 
     @staticmethod
     def _normalize_label(label):
@@ -51,9 +70,9 @@ class DevemoSource(DatasetSource):
             label = label.strip().lower()
             if not label:
                 return None
-            if label in DevemoSource.POSITIVE_LABELS:
-                return "positive"
-            return "negative"
+            if label in DevemoSource.NEGATIVE_LABELS:
+                return "negative"
+            return "others"
         return None
 
     def _build_dataframe(self):

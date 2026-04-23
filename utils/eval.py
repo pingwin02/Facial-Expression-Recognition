@@ -515,12 +515,8 @@ def evaluate_model_on_data(
         "test_samples": test_count,
         "evaluation_videos": int(len(eval_frames_per_video)),
         "evaluation_frames_total": int(sum(eval_frames_per_video.values())),
-        "evaluation_frames_per_video": eval_frames_per_video,
-        "evaluation_frame_ids_per_video": eval_frame_ids_per_video,
         "example_videos": int(len(example_frames_per_video)),
         "example_frames_total": int(len(selected_indices)),
-        "example_frames_per_video": example_frames_per_video,
-        "example_frame_ids_per_video": example_frame_ids_per_video,
     }
 
     metrics_json_path = f"{output_dir}/{model_name}_evaluation_metrics.json"

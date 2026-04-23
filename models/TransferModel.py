@@ -10,7 +10,7 @@ from utils.wandb_utils import init_wandb_run, finish_wandb_run
 
 
 class TransferModel:
-    def __init__(self, input_shape=(8, 48, 48, 2), num_classes=7):
+    def __init__(self, input_shape=(8, 224, 224, 3), num_classes=7):
         inputs = layers.Input(shape=input_shape)
 
         data_augmentation = models.Sequential(
@@ -38,8 +38,6 @@ class TransferModel:
         x = layers.TimeDistributed(layers.Conv2D(3, (1, 1), padding="same", use_bias=False))(x)
         x = layers.TimeDistributed(layers.BatchNormalization())(x)
         x = layers.TimeDistributed(layers.Activation("relu"))(x)
-
-        x = layers.TimeDistributed(layers.Resizing(224, 224, interpolation="bilinear"))(x)
 
         x = layers.TimeDistributed(layers.Rescaling(scale=2.0, offset=-1.0))(x)
 
@@ -272,7 +270,7 @@ class TransferModel:
     def eval(cls, val_tuple, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
         model_prefix = cls.__name__.lower()
 
-        loaded_model, model_dir = find_and_load_model(model_prefix)
+        loaded_model, model_dir = find_and_load_model(model_prefix, dataset_name=dataset_name)
         if loaded_model is None:
             print(f"Error: Model {cls.__name__} could not be loaded for evaluation.")
             return

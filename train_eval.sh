@@ -4,19 +4,22 @@ EPOCHS=100
 MODEL_INDEX_ARG=""
 INPUT_INDEX_ARG=""
 MODE_ARG=""
+LOOP_COUNT=1
 
 usage() {
-    echo "Usage: $0 [-e epochs] [-m model_index] [-i input_index] [-M mode]"
+    echo "Usage: $0 [-e epochs] [-m model_index] [-i input_index] [-M mode] [-l loop_count]"
     echo "  -m and -i accept numeric menu indices."
     echo "  -M accepts: train, eval, or both (default: both)"
+    echo "  -l accepts number of full run loops (default: 1)"
 }
 
-while getopts "e:m:i:M:" opt; do
+while getopts "e:m:i:M:l:" opt; do
     case $opt in
         e) EPOCHS=$OPTARG ;;
         m) MODEL_INDEX_ARG=$OPTARG ;;
         i) INPUT_INDEX_ARG=$OPTARG ;;
         M) MODE_ARG=$OPTARG ;;
+        l) LOOP_COUNT=$OPTARG ;;
         *) usage; exit 1 ;;
     esac
 done
@@ -101,14 +104,23 @@ else
     exit 1
 fi
 
-for MODE in "${MODES_TO_RUN[@]}"; do
-    for INPUT_NAME in "${INPUTS_TO_RUN[@]}"; do
-        for MODEL in "${MODELS_TO_RUN[@]}"; do
-            python -u main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL"
-            if [ $? -ne 0 ]; then
-                echo "Error: Command failed. Exiting."
-                exit 1
-            fi
+if ! [[ $LOOP_COUNT =~ ^[0-9]+$ ]] || [[ $LOOP_COUNT -lt 1 ]]; then
+    echo "Error: Invalid loop count '$LOOP_COUNT'. Use an integer >= 1."
+    exit 1
+fi
+
+for ((LOOP_INDEX=1; LOOP_INDEX<=LOOP_COUNT; LOOP_INDEX++)); do
+    echo "Starting loop $LOOP_INDEX/$LOOP_COUNT"
+
+    for MODE in "${MODES_TO_RUN[@]}"; do
+        for INPUT_NAME in "${INPUTS_TO_RUN[@]}"; do
+            for MODEL in "${MODELS_TO_RUN[@]}"; do
+                python -u main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL"
+                if [ $? -ne 0 ]; then
+                    echo "Error: Command failed in loop $LOOP_INDEX/$LOOP_COUNT. Exiting."
+                    exit 1
+                fi
+            done
         done
     done
 done
