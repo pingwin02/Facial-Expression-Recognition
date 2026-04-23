@@ -169,7 +169,12 @@ class TransferModel:
         input_shape = X_train.shape[1:]
 
         model = cls(input_shape=input_shape, num_classes=num_classes)
-        warmup_epochs = epochs
+
+        if epochs <= 1:
+            warmup_epochs = epochs
+        else:
+            warmup_epochs = max(1, int(round(epochs * 0.3)))
+            warmup_epochs = min(warmup_epochs, epochs - 1)
 
         wandb_run, wandb_callback = init_wandb_run(
             model_name=cls.__name__,
@@ -212,6 +217,7 @@ class TransferModel:
             )
 
             if epochs > warmup_epochs:
+                print(f"Warmup phase completed. Starting fine-tuning for remaining {epochs - warmup_epochs} epochs...")
                 model.set_fine_tune_layers(trainable_backbone_layers=60)
                 model.compile(learning_rate=5e-5, loss="focal")
 
