@@ -108,6 +108,7 @@ class DevemoSource(DatasetSource):
             checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}",
             save_checkpoint_every=10,
             resume_from_checkpoint=True,
+            use_transformer_selection=True,
         )
         X_val, y_val, val_debugs = process_video_temporal_encoding(
             val_df,
@@ -118,6 +119,7 @@ class DevemoSource(DatasetSource):
             checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}",
             save_checkpoint_every=10,
             resume_from_checkpoint=True,
+            use_transformer_selection=True,
         )
 
         cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_train_seed{seed}")

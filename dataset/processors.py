@@ -454,7 +454,56 @@ def _read_raw_frame(cap, frame_idx):
     return (resized / 255.0).astype(np.float32)
 
 
-def _sample_faces_from_video(video_path, detector_pack):
+_vit_model = None
+_vit_processor = None
+
+
+def _get_vit():
+    global _vit_model, _vit_processor
+    if _vit_model is None:
+        import torch
+        from transformers import ViTModel, ViTImageProcessor
+
+        _vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
+        _vit_model = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k")
+        _vit_model.eval()
+    return _vit_model, _vit_processor
+
+
+def _transformer_select_frames(cap, candidate_indices, num_select):
+    """Use pre-trained ViT to extract features, then score frames by attention for selection."""
+    import torch
+
+    frames_rgb = []
+    valid_indices = []
+    for idx in candidate_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frames_rgb.append(rgb)
+        valid_indices.append(int(idx))
+
+    if len(valid_indices) <= num_select:
+        return valid_indices
+
+    model, processor = _get_vit()
+    inputs = processor(images=frames_rgb, return_tensors="pt")
+    with torch.no_grad():
+        out = model(**inputs)
+    cls_features = out.last_hidden_state[:, 0, :]  # (N, 768)
+
+    # self-attention score: how much each frame attends to all others
+    sim = torch.matmul(cls_features, cls_features.T)  # (N, N)
+    scores = sim.mean(dim=1).numpy()  # (N,)
+
+    top_k = np.argsort(scores)[-num_select:]
+    top_k_sorted = sorted(top_k)
+    return [valid_indices[i] for i in top_k_sorted]
+
+
+def _sample_faces_from_video(video_path, detector_pack, use_transformer_selection=False):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None, None
@@ -464,7 +513,14 @@ def _sample_faces_from_video(video_path, detector_pack):
         if total_frames <= 0:
             return None, None
 
-        sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+        if use_transformer_selection:
+            n_candidates = min(total_frames, max(NUM_SAMPLE_FRAMES * 6, 30))
+            candidate_indices = np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int).tolist()
+            sample_indices = _transformer_select_frames(cap, candidate_indices, NUM_SAMPLE_FRAMES)
+            if len(sample_indices) < NUM_SAMPLE_FRAMES:
+                sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+        else:
+            sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
 
         sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
 
@@ -568,6 +624,7 @@ def process_video_temporal_encoding(
     checkpoint_prefix=None,
     save_checkpoint_every=1,
     resume_from_checkpoint=True,
+    use_transformer_selection=False,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -588,7 +645,7 @@ def process_video_temporal_encoding(
         video_path = os.path.join(video_dir, video_name)
         label = row["label"] if label_map is None else label_map.get(row["label"], 0)
 
-        sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack)
+        sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack, use_transformer_selection)
         if sample_indices is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
