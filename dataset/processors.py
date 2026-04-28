@@ -1,14 +1,30 @@
+import os
+
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+
 import cv2
 import numpy as np
-import os
 import pickle
 import re
 from tqdm import tqdm
 
 from utils.image import get_dlib_detector_predictor, detect_and_crop_face
 
-IMG_HEIGHT = 48
-IMG_WIDTH = 48
+IMG_HEIGHT = 224
+IMG_WIDTH = 224
+
+NUM_SAMPLE_FRAMES = 5
+CENTER_IDX = NUM_SAMPLE_FRAMES // 2
+
+TEMPORAL_TINTS = [
+    np.array([1.0, 0.1, 0.2], dtype=np.float32),
+    np.array([0.2, 1.0, 0.1], dtype=np.float32),
+    None,
+    np.array([0.1, 0.6, 1.0], dtype=np.float32),
+    np.array([0.3, 0.1, 1.0], dtype=np.float32),
+]
+
+TEMPORAL_ALPHAS = [1.2, 0.9, 0.0, 0.9, 1.2]
 
 
 def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_HEIGHT)):
@@ -35,22 +51,6 @@ def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_H
             mask = mask / max_val
 
     return mask
-
-
-def _center_window_indices(total_frames, target_count, center_fraction=0.5, window_fraction=0.45):
-    if total_frames <= 0:
-        return []
-
-    center_idx = int(round((total_frames - 1) * center_fraction))
-    half_window = max(1, int(round(total_frames * window_fraction * 0.5)))
-    start = max(0, center_idx - half_window)
-    end = min(total_frames - 1, center_idx + half_window)
-
-    available = max(1, end - start + 1)
-    if available >= target_count:
-        return np.linspace(start, end, target_count, dtype=int).tolist()
-
-    return np.linspace(0, total_frames - 1, target_count, dtype=int).tolist()
 
 
 def _frame_quality_score(frame, prev_gray):
@@ -106,17 +106,29 @@ def _map_video_frame_to_sequence_index(frame_idx, total_frames, sequence_length)
     return int(np.clip(mapped, 0, sequence_length - 1))
 
 
-def _checkpoint_path(checkpoint_dir, checkpoint_prefix, iteration):
-    return os.path.join(checkpoint_dir, f"{checkpoint_prefix}_iter{int(iteration):06d}.tmp")
+def _checkpoint_size_tag(size_tag=None):
+    if size_tag:
+        return re.sub(r"[^a-zA-Z0-9x_-]", "_", str(size_tag))
+    return f"{IMG_WIDTH}x{IMG_HEIGHT}"
 
 
-def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix):
+def _checkpoint_pattern(checkpoint_prefix, size_tag=None):
+    safe_size_tag = re.escape(_checkpoint_size_tag(size_tag))
+    return re.compile(rf"^{re.escape(checkpoint_prefix)}_{safe_size_tag}_iter(\d+)\.tmp$")
+
+
+def _checkpoint_path(checkpoint_dir, checkpoint_prefix, iteration, size_tag=None):
+    safe_size_tag = _checkpoint_size_tag(size_tag)
+    return os.path.join(checkpoint_dir, f"{checkpoint_prefix}_{safe_size_tag}_iter{int(iteration):06d}.tmp")
+
+
+def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
     if not checkpoint_dir or not checkpoint_prefix:
         return None
     if not os.path.isdir(checkpoint_dir):
         return None
 
-    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
     latest_iter = -1
     latest_path = None
 
@@ -139,12 +151,13 @@ def _save_iteration_checkpoint(
     X,
     y,
     debugs,
+    size_tag=None,
 ):
     if not checkpoint_dir or not checkpoint_prefix:
         return None
 
     os.makedirs(checkpoint_dir, exist_ok=True)
-    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index)
+    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index, size_tag=size_tag)
     payload = {
         "next_index": int(next_index),
         "X": X,
@@ -155,7 +168,7 @@ def _save_iteration_checkpoint(
     with open(path, "wb") as f:
         pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
     for filename in os.listdir(checkpoint_dir):
         match = pattern.match(filename)
         if not match:
@@ -171,8 +184,8 @@ def _save_iteration_checkpoint(
     return path
 
 
-def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
-    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix)
+def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
+    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=size_tag)
     if latest_path is None:
         return 0, [], [], []
 
@@ -189,13 +202,13 @@ def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix):
     return next_index, X, y, debugs
 
 
-def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix):
+def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix, size_tag=None):
     if not checkpoint_dir or not checkpoint_prefix:
         return
     if not os.path.isdir(checkpoint_dir):
         return
 
-    pattern = re.compile(rf"^{re.escape(checkpoint_prefix)}_iter(\d+)\.tmp$")
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
     removed_count = 0
 
     for filename in os.listdir(checkpoint_dir):
@@ -310,7 +323,6 @@ def process_video_frames_with_frame_labels(
             if face is None:
                 continue
 
-            face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
             if face.ndim != 3 or face.shape[-1] < 3:
                 continue
             face_rgb = face[:, :, :3]
@@ -351,9 +363,7 @@ def process_video_frames_with_frame_labels(
         cap.release()
 
         if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-            checkpoint_path = _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
-            if checkpoint_path is not None:
-                print(f"Checkpoint saved: {checkpoint_path}")
+            _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
 
     return np.array(X), np.array(y), debugs
 
@@ -395,7 +405,6 @@ def process_image_directory(
             face, crop_box, landmarks = detect_and_crop_face(image, *detector_pack)
 
             if face is not None and crop_box is not None and landmarks is not None:
-                face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
                 if face.ndim != 3 or face.shape[-1] < 3:
                     continue
                 face_rgb = face[:, :, :3]
@@ -412,7 +421,7 @@ def process_image_directory(
                 debugs.append({"crop_box": crop_box, "landmarks": landmarks, "image_path": image_path})
 
         if checkpoint_dir and checkpoint_prefix and ((sample_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-            checkpoint_path = _save_iteration_checkpoint(
+            _save_iteration_checkpoint(
                 checkpoint_dir,
                 checkpoint_prefix,
                 sample_idx + 1,
@@ -420,22 +429,202 @@ def process_image_directory(
                 y,
                 debugs,
             )
-            if checkpoint_path is not None:
-                print(f"Checkpoint saved: {checkpoint_path}")
 
     return np.array(X), np.array(y), debugs
 
 
-def process_video_sequences(
+def _try_detect_face_at(cap, frame_idx, detector_pack):
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+    ret, frame = cap.read()
+    if not ret:
+        return None
+    face, crop_box, _ = detect_and_crop_face(frame, *detector_pack)
+    if face is None or face.ndim != 3 or face.shape[-1] < 3 or crop_box is None:
+        return None
+    return face[:, :, :3].astype(np.float32)
+
+
+def _read_raw_frame(cap, frame_idx):
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
+    ret, frame = cap.read()
+    if not ret:
+        return None
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(frame_rgb, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
+    return (resized / 255.0).astype(np.float32)
+
+
+_vit_model = None
+_vit_processor = None
+
+
+def _get_vit():
+    global _vit_model, _vit_processor
+    if _vit_model is None:
+        import torch
+        from transformers import ViTModel, ViTImageProcessor
+
+        _vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
+        _vit_model = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k")
+        _vit_model.eval()
+    return _vit_model, _vit_processor
+
+
+def _transformer_select_frames(cap, candidate_indices, num_select):
+    """Use pre-trained ViT to extract features, then score frames by attention for selection."""
+    import torch
+
+    frames_rgb = []
+    valid_indices = []
+    for idx in candidate_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frames_rgb.append(rgb)
+        valid_indices.append(int(idx))
+
+    if len(valid_indices) <= num_select:
+        return valid_indices
+
+    model, processor = _get_vit()
+    inputs = processor(images=frames_rgb, return_tensors="pt")
+    with torch.no_grad():
+        out = model(**inputs)
+    cls_features = out.last_hidden_state[:, 0, :]  # (N, 768)
+
+    # self-attention score: how much each frame attends to all others
+    sim = torch.matmul(cls_features, cls_features.T)  # (N, N)
+    scores = sim.mean(dim=1).numpy()  # (N,)
+
+    top_k = np.argsort(scores)[-num_select:]
+    top_k_sorted = sorted(top_k)
+    return [valid_indices[i] for i in top_k_sorted]
+
+
+def _sample_faces_from_video(video_path, detector_pack, use_transformer_selection=False):
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None, None
+
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            return None, None
+
+        if use_transformer_selection:
+            n_candidates = min(total_frames, max(NUM_SAMPLE_FRAMES * 6, 30))
+            candidate_indices = np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int).tolist()
+            sample_indices = _transformer_select_frames(cap, candidate_indices, NUM_SAMPLE_FRAMES)
+            if len(sample_indices) < NUM_SAMPLE_FRAMES:
+                sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+        else:
+            sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+
+        sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
+
+        if any(f is None for f in sampled_faces):
+            sampled_faces = [_read_raw_frame(cap, idx) for idx in sample_indices]
+
+        fallback = None
+        for f in sampled_faces:
+            if f is not None:
+                fallback = f
+                break
+
+        if fallback is None:
+            return None, None
+
+        sampled_faces = [f if f is not None else fallback for f in sampled_faces]
+        return sample_indices, sampled_faces
+    finally:
+        cap.release()
+
+
+def _to_grayscale_rgb(face_rgb):
+    gray = np.dot(face_rgb[..., :3], np.array([0.299, 0.587, 0.114], dtype=np.float32))
+    gray = np.clip(gray, 0.0, 1.0).astype(np.float32)
+    return np.repeat(gray[..., np.newaxis], 3, axis=-1)
+
+
+def _compose_temporal_chromatic(sampled_faces, include_preview=False):
+    center_face = sampled_faces[CENTER_IDX]
+    if center_face is None:
+        for offset in range(1, NUM_SAMPLE_FRAMES):
+            for candidate in [CENTER_IDX - offset, CENTER_IDX + offset]:
+                if 0 <= candidate < NUM_SAMPLE_FRAMES and sampled_faces[candidate] is not None:
+                    center_face = sampled_faces[candidate]
+                    break
+            if center_face is not None:
+                break
+    if center_face is None:
+        return None
+
+    base_gray = _to_grayscale_rgb(center_face)
+    result = base_gray.copy()
+
+    diff_layers = None
+    if include_preview:
+        diff_layers = [None] * NUM_SAMPLE_FRAMES
+        diff_layers[CENTER_IDX] = base_gray.copy()
+
+    for i in range(NUM_SAMPLE_FRAMES):
+        if TEMPORAL_TINTS[i] is None:
+            continue
+        frame = sampled_faces[i]
+        if frame is None:
+            continue
+
+        color = TEMPORAL_TINTS[i]
+        alpha = TEMPORAL_ALPHAS[i]
+
+        diff = np.abs(frame - center_face)
+        diff_magnitude = np.mean(diff, axis=-1, keepdims=True)
+        colored_diff = diff_magnitude * color.reshape(1, 1, 3)
+
+        if include_preview:
+            diff_layers[i] = np.clip(alpha * colored_diff, 0.0, 1.0)
+
+        result = result + alpha * colored_diff
+
+    result = np.clip(result, 0.0, 1.0).astype(np.float32)
+
+    if include_preview:
+        return result, base_gray, diff_layers
+    return result
+
+
+def temporal_encoding_preview_from_video(video_path):
+    detector_pack = get_dlib_detector_predictor()
+    sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack)
+    if sample_indices is None:
+        raise RuntimeError(f"Cannot read frames from video: {video_path}")
+
+    pack = _compose_temporal_chromatic(sampled_faces, include_preview=True)
+    if pack is None:
+        raise RuntimeError("No detectable faces in sampled frames.")
+
+    result, base_gray, diff_layers = pack
+    return {
+        "encoded_frame": result,
+        "base_gray": base_gray,
+        "diff_layers": diff_layers,
+        "sample_indices": sample_indices,
+        "sampled_faces": sampled_faces,
+    }
+
+
+def process_video_temporal_encoding(
     df,
     video_dir,
     filename_col,
     label_map,
-    sequence_length=8,
     checkpoint_dir=None,
     checkpoint_prefix=None,
     save_checkpoint_every=1,
     resume_from_checkpoint=True,
+    use_transformer_selection=False,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -446,7 +635,9 @@ def process_video_sequences(
 
     first_run = True
 
-    for row_idx, (_, row) in enumerate(tqdm(df.iterrows(), desc="Processing videos", total=len(df), unit="video")):
+    for row_idx, (_, row) in enumerate(
+        tqdm(df.iterrows(), desc="Processing videos (temporal encoding)", total=len(df), unit="video")
+    ):
         if row_idx < start_index:
             continue
 
@@ -454,141 +645,32 @@ def process_video_sequences(
         video_path = os.path.join(video_dir, video_name)
         label = row["label"] if label_map is None else label_map.get(row["label"], 0)
 
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened():
+        sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack, use_transformer_selection)
+        if sample_indices is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        if total_frames <= 0:
-            cap.release()
+        result = _compose_temporal_chromatic(sampled_faces)
+        if result is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
-        candidate_indices = np.arange(total_frames, dtype=int)
-        center_idx = (total_frames - 1) / 2.0
-        sigma = max(3.0, total_frames * 0.22)
+        if first_run:
+            print(f"\nTemporal encoding shape: {result.shape}")
+            first_run = False
 
-        detector, _ = detector_pack
-        quality_values = []
-        temporal_values = []
-        face_detection_values = []
-        face_cache = {}
-        prev_gray = None
-
-        for frame_idx in candidate_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
-            ret, frame = cap.read()
-            if not ret:
-                continue
-
-            quality, prev_gray = _frame_quality_score(frame, prev_gray)
-            temporal_weight = float(np.exp(-((float(frame_idx) - center_idx) ** 2) / (2.0 * (sigma**2))))
-            has_face, faces = _has_face_detected(frame, detector)
-            if has_face:
-                face_cache[int(frame_idx)] = faces
-
-            quality_values.append((int(frame_idx), float(quality)))
-            temporal_values.append((int(frame_idx), temporal_weight))
-            face_detection_values.append((int(frame_idx), 1.0 if has_face else 0.0))
-
-        if not quality_values:
-            cap.release()
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
-            continue
-
-        q_scores = np.array([q for _, q in quality_values], dtype=np.float32)
-        q_min = float(np.min(q_scores))
-        q_max = float(np.max(q_scores))
-        q_range = max(1e-6, q_max - q_min)
-
-        temporal_lookup = {idx: w for idx, w in temporal_values}
-        face_detection_lookup = {idx: w for idx, w in face_detection_values}
-        scored_candidates = []
-        for frame_idx, quality in quality_values:
-            quality_norm = float((quality - q_min) / q_range)
-            center_w = float(temporal_lookup.get(frame_idx, 0.0))
-            face_w = float(face_detection_lookup.get(frame_idx, 0.0))
-            # Scoring: 35% quality, 40% temporal position, 25% face detection
-            fused_score = (0.35 * quality_norm) + (0.40 * center_w) + (0.25 * face_w)
-            scored_candidates.append((int(frame_idx), fused_score))
-
-        frame_indices = _select_diverse_top_indices(scored_candidates, sequence_length, total_frames)
-        if len(frame_indices) < sequence_length:
-            frame_indices = _center_window_indices(total_frames, sequence_length)
-
-        sequence_frames = []
-        sequence_debug = []
-
-        for frame_idx in frame_indices:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
-            ret, frame = cap.read()
-            if not ret:
-                continue
-
-            cached_faces = face_cache.get(int(frame_idx))
-            face, crop_box, landmarks = detect_and_crop_face(frame, *detector_pack, faces=cached_faces)
-            if face is None:
-                continue
-
-            face = cv2.resize(face, (IMG_WIDTH, IMG_HEIGHT))
-            if face.ndim != 3 or face.shape[-1] < 3:
-                continue
-            face_rgb = face[:, :, :3]
-
-            if crop_box is not None and landmarks is not None:
-                landmark_mask = normalize_and_create_mask(landmarks, crop_box)
-            else:
-                landmark_mask = np.zeros((IMG_HEIGHT, IMG_WIDTH), dtype=np.float32)
-
-            combined_img = np.concatenate([face_rgb, landmark_mask[..., np.newaxis]], axis=-1).astype(np.float32)
-
-            if first_run:
-                print(f"\nCombined shape: {combined_img.shape}")
-                first_run = False
-
-            sequence_frames.append(combined_img)
-            sequence_debug.append(
-                {
-                    "frame_idx": int(frame_idx),
-                    "crop_box": crop_box,
-                    "landmarks": landmarks,
-                }
-            )
-
-        cap.release()
-
-        if not sequence_frames:
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
-            continue
-
-        while len(sequence_frames) < sequence_length:
-            sequence_frames.append(sequence_frames[-1].copy())
-            sequence_debug.append(sequence_debug[-1].copy())
-
-        if len(sequence_frames) > sequence_length:
-            sequence_frames = sequence_frames[:sequence_length]
-            sequence_debug = sequence_debug[:sequence_length]
-
-        X.append(np.stack(sequence_frames, axis=0))
+        X.append(result)
         y.append(label)
         debugs.append(
             {
                 "video": video_name,
-                "frames": [item["frame_idx"] for item in sequence_debug],
-                "center_frame": int(sequence_debug[len(sequence_debug) // 2]["frame_idx"]),
-                "crop_box": sequence_debug[len(sequence_debug) // 2].get("crop_box"),
-                "landmarks": sequence_debug[len(sequence_debug) // 2].get("landmarks"),
+                "sample_indices": sample_indices,
             }
         )
 
         if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-            checkpoint_path = _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
-            if checkpoint_path is not None:
-                print(f"Checkpoint saved: {checkpoint_path}")
+            _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
 
     return np.array(X), np.array(y), debugs

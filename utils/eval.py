@@ -268,11 +268,12 @@ def evaluate_model_on_data(
     val_tuple,
     output_dir,
     model_name="simple_sample_grid",
-    max_samples=10,
+    max_samples=9,
     label_map=None,
     dataset_name=None,
     dataset_path=None,
     train_tuple=None,
+    cache_label=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -341,13 +342,24 @@ def evaluate_model_on_data(
         "validation": _collect_metrics_dict(cm_true, cm_pred, label_map=display_map),
     }
 
-    save_confusion_matrix(
+    cm = save_confusion_matrix(
         cm_true,
         cm_pred,
         output_dir,
         label_map=display_map,
         filename=f"{model_name}_confusion_matrix.png",
     )
+
+    cm_labels = None
+    if display_map:
+        cm_labels = [str(k) for k, v in sorted(display_map.items(), key=lambda item: item[1])]
+    metrics_json["validation"]["confusion_matrix"] = cm.tolist()
+    if cm_labels:
+        metrics_json["validation"]["confusion_matrix_labels"] = cm_labels
+    if cache_label is not None:
+        metrics_json["cache_label"] = cache_label
+    if label_map is not None:
+        metrics_json["label_map"] = {str(k): int(v) for k, v in label_map.items()}
 
     if dataset_name == "veatic":
         selected_video_anchor_indices = _select_correct_video_indices(
@@ -432,9 +444,7 @@ def evaluate_model_on_data(
         accuracy=accuracy,
         filename=f"{model_name}_samples.png",
         highlight_correctness_bg=True,
-        cols=10,
-        group_size=10,
-        show_group_separator=False,
+        cols=3,
     )
 
     if dataset_name == "veatic" and dataset_path is not None:
@@ -505,12 +515,8 @@ def evaluate_model_on_data(
         "test_samples": test_count,
         "evaluation_videos": int(len(eval_frames_per_video)),
         "evaluation_frames_total": int(sum(eval_frames_per_video.values())),
-        "evaluation_frames_per_video": eval_frames_per_video,
-        "evaluation_frame_ids_per_video": eval_frame_ids_per_video,
         "example_videos": int(len(example_frames_per_video)),
         "example_frames_total": int(len(selected_indices)),
-        "example_frames_per_video": example_frames_per_video,
-        "example_frame_ids_per_video": example_frame_ids_per_video,
     }
 
     metrics_json_path = f"{output_dir}/{model_name}_evaluation_metrics.json"

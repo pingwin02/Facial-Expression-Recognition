@@ -2,13 +2,15 @@ import json
 import os
 import pandas as pd
 
-from dataset.processors import process_video_sequences
+from dataset.processors import process_video_temporal_encoding
 from dataset.processors import cleanup_iteration_checkpoints
 from dataset.sources.base_source import DatasetSource
-from dataset.utils import label_distribution_from_csv, label_distribution_from_json, split_data
+from dataset.utils import build_distribution_result, split_data
 
 
 class DevemoSource(DatasetSource):
+    NEGATIVE_LABELS = {"anger", "confusion", "surprise", "disgust"}
+
     def __init__(self, input_dir, plus_variant=False):
         super().__init__(input_dir)
         self.plus_variant = plus_variant
@@ -38,10 +40,40 @@ class DevemoSource(DatasetSource):
     def label_distribution(self):
         if self.plus_variant:
             json_path = os.path.join(self.dataset_path, "devemo+.json")
-            return label_distribution_from_json(json_path, label_key="label", item_key="filename")
+            if not os.path.exists(json_path):
+                return None
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            df = pd.DataFrame(data)
+            if "label" not in df:
+                return None
+
+            normalized = df["label"].apply(self._normalize_label).dropna()
+            return build_distribution_result(normalized.value_counts().to_dict())
 
         csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
-        return label_distribution_from_csv(csv_path, delimiter=";", label_key="label", item_key="file")
+        if not os.path.exists(csv_path):
+            return None
+
+        df = pd.read_csv(csv_path, sep=";")
+        if "label" not in df:
+            return None
+
+        normalized = df["label"].apply(self._normalize_label).dropna()
+        return build_distribution_result(normalized.value_counts().to_dict())
+
+    @staticmethod
+    def _normalize_label(label):
+        if isinstance(label, str):
+            label = label.strip().lower()
+            if not label:
+                return None
+            if label in DevemoSource.NEGATIVE_LABELS:
+                return "negative"
+            return "others"
+        return None
 
     def _build_dataframe(self):
         if self.plus_variant:
@@ -49,12 +81,14 @@ class DevemoSource(DatasetSource):
             with open(json_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             df = pd.DataFrame(data)
-            df["label"] = df["label"].str.lower()
+            df["label"] = df["label"].apply(self._normalize_label)
+            df = df[df["label"].notna()].reset_index(drop=True)
             return df, self.dataset_path, "participant", "filename"
 
         csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
         df = pd.read_csv(csv_path, sep=";")
-        df["label"] = df["label"].str.lower()
+        df["label"] = df["label"].apply(self._normalize_label)
+        df = df[df["label"].notna()].reset_index(drop=True)
         return df, self.dataset_path, "id_examined", "file"
 
     def load(self, seed=42):
@@ -65,27 +99,27 @@ class DevemoSource(DatasetSource):
         checkpoint_dir = os.path.join(self.input_dir, ".tmp")
         os.makedirs(checkpoint_dir, exist_ok=True)
 
-        X_train, y_train, train_debugs = process_video_sequences(
+        X_train, y_train, train_debugs = process_video_temporal_encoding(
             train_df,
             video_dir,
             filename_col,
             label_map,
-            sequence_length=300,
             checkpoint_dir=checkpoint_dir,
             checkpoint_prefix=f"{self.dataset_name}_train_seed{seed}",
             save_checkpoint_every=10,
             resume_from_checkpoint=True,
+            use_transformer_selection=True,
         )
-        X_val, y_val, val_debugs = process_video_sequences(
+        X_val, y_val, val_debugs = process_video_temporal_encoding(
             val_df,
             video_dir,
             filename_col,
             label_map,
-            sequence_length=300,
             checkpoint_dir=checkpoint_dir,
             checkpoint_prefix=f"{self.dataset_name}_val_seed{seed}",
             save_checkpoint_every=10,
             resume_from_checkpoint=True,
+            use_transformer_selection=True,
         )
 
         cleanup_iteration_checkpoints(checkpoint_dir, f"{self.dataset_name}_train_seed{seed}")

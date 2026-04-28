@@ -65,37 +65,6 @@ def prompt_yes_no(question, default=False):
         print("Please answer with 'y' or 'n'.")
 
 
-def prompt_choice(question, options, default):
-    allowed = [str(opt).strip().lower() for opt in options]
-    if str(default).strip().lower() not in allowed:
-        raise ValueError("Default value must be one of the provided options.")
-
-    options_hint = "/".join(options)
-    while True:
-        raw = input(f"{question} [{options_hint}] (default: {default}): ").strip().lower()
-        if not raw:
-            return str(default)
-        if raw in allowed:
-            return raw
-        print(f"Please choose one of: {options_hint}")
-
-
-def prompt_int(question, default):
-    while True:
-        raw = input(f"{question} (default: {default}): ").strip()
-        if not raw:
-            return int(default)
-        try:
-            return int(raw)
-        except ValueError:
-            print("Please enter a valid integer.")
-
-
-def prompt_text(question, default):
-    raw = input(f"{question} (default: {default}): ").strip()
-    return raw if raw else str(default)
-
-
 def _to_uint_display(image):
     arr = np.asarray(image)
 

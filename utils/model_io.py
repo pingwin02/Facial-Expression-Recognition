@@ -32,22 +32,38 @@ def _is_interactive_stdin():
     return bool(getattr(sys.stdin, "isatty", lambda: False)())
 
 
-def find_and_load_model(model_prefix="SimpleModel"):
-    print(f"Searching for models matching '{model_prefix}'...")
+def _path_has_dataset_segment(path, dataset_name):
+    if not dataset_name:
+        return True
 
-    all_models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
+    normalized = os.path.normpath(path).replace("\\", "/").lower()
+    parts = [part for part in normalized.split("/") if part]
+    return str(dataset_name).strip().lower() in parts
+
+
+def find_and_load_model(model_prefix="SimpleModel", dataset_name=None):
+    if dataset_name:
+        print(f"Searching for models matching '{model_prefix}' and dataset '{dataset_name}'...")
+    else:
+        print(f"Searching for models matching '{model_prefix}'...")
+
+    models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
+    all_models = [path for path in models if "backup" not in path.lower()]
 
     candidates = []
     for path in all_models:
         normalized_path = path.lower()
-        if model_prefix.lower() in normalized_path in normalized_path:
+        if model_prefix.lower() in normalized_path and _path_has_dataset_segment(path, dataset_name):
             candidates.append(path)
 
     candidates.sort(key=os.path.getmtime, reverse=True)
 
     if not candidates:
-        print(f"Error: No trained models found matching prefix '{model_prefix}'.")
-        return None
+        if dataset_name:
+            print(f"Error: No trained models found matching prefix '{model_prefix}' for dataset '{dataset_name}'.")
+        else:
+            print(f"Error: No trained models found matching prefix '{model_prefix}'.")
+        return None, None
 
     selected_path = candidates[0]
 
@@ -79,18 +95,19 @@ def find_and_load_model(model_prefix="SimpleModel"):
                 print("Invalid selection. Please try again.")
 
     print(f"Loading trained model from: {selected_path}")
+    model_dir = os.path.dirname(selected_path)
     try:
         loaded_model = tf.keras.models.load_model(selected_path, compile=False)
-        return loaded_model
+        return loaded_model, model_dir
     except Exception as e:
         print(f"Standard load failed: {e}")
         print("Retrying model load with safe_mode=False for trusted local artifact...")
         try:
             loaded_model = tf.keras.models.load_model(selected_path, safe_mode=False, compile=False)
-            return loaded_model
+            return loaded_model, model_dir
         except Exception as e2:
             print(f"Failed to load model: {e2}")
-            return None
+            return None, None
 
 
 def load_model_class(model_name):
@@ -113,7 +130,7 @@ def load_model_class(model_name):
         raise ValueError(str(e))
 
 
-def prepare_output_directory(model, mode, output_root="output", dataset=None):
+def cleanup_empty_dirs(output_root="output"):
     if os.path.exists(output_root):
         for root, dirs, files in os.walk(output_root, topdown=False):
             for d in dirs:
@@ -121,11 +138,16 @@ def prepare_output_directory(model, mode, output_root="output", dataset=None):
                 if os.path.isdir(dir_path) and not os.listdir(dir_path):
                     shutil.rmtree(dir_path)
 
+
+def prepare_output_directory(model, mode, output_root="output", dataset=None, cache_version=None):
     timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    model_name = model.__class__.__name__
     data_part = dataset if dataset is not None else "unknown"
-    output_subdir = f"{model.__class__.__name__}_{data_part}_{timestamp}_{mode}"
-    output_dir = os.path.join(output_root, output_subdir)
+    cache_part = cache_version if cache_version else "default"
+
+    run_dir = timestamp
+    output_dir = os.path.join(output_root, cache_part, model_name, data_part, run_dir)
     os.makedirs(output_dir, exist_ok=True)
-    model_path = os.path.join(output_dir, f"{model.__class__.__name__}_model.keras")
+    model_path = os.path.join(output_dir, f"{model_name}_model.keras")
 
     return output_dir, model_path

@@ -7,8 +7,8 @@ import numpy as np
 import os
 import urllib.request
 
-IMG_HEIGHT = 48
-IMG_WIDTH = 48
+IMG_HEIGHT = 224
+IMG_WIDTH = 224
 CHANNELS = 1
 
 _detector = None
@@ -66,7 +66,7 @@ def detect_and_crop_face(frame, detector, predictor, faces=None):
         target_img = frame[y1:y2, x1:x2]
         crop_box = (x1, y1, x2, y2)
 
-    resized = cv2.resize(target_img, (IMG_HEIGHT, IMG_WIDTH), interpolation=cv2.INTER_AREA)
+    resized = cv2.resize(target_img, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
     if resized.ndim == 2:
         resized = cv2.cvtColor(resized, cv2.COLOR_GRAY2RGB)
     else:
@@ -207,7 +207,10 @@ def save_sample_frames(
             elif frame_idx is not None:
                 frame_part = f"frame: {int(frame_idx)}"
 
-            text_lines = [f"video: {debug['video']}", bottom_caption]
+            video_display = debug["video"]
+            if len(video_display) > 20:
+                video_display = video_display[:17] + "..."
+            text_lines = [f"video: {video_display}", bottom_caption]
             if frame_part:
                 text_lines.append(frame_part)
 
@@ -259,5 +262,5 @@ def save_sample_frames(
     plt.tight_layout(rect=(0, 0, 1, top_rect))
     print(f"Saving sample grid PNG to {os.path.join(output_dir, filename)}")
     os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(os.path.join(output_dir, filename))
+    plt.savefig(os.path.join(output_dir, filename), dpi=150)
     plt.close(fig)
