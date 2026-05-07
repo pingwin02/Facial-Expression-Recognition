@@ -5,7 +5,35 @@ import pickle
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-CACHE_VERSION = "video_v22_transformer_frame_selection"
+BASE_CACHE_VERSION = "video_v23_configurable_frame_selection"
+CACHE_VERSION = BASE_CACHE_VERSION
+
+
+def _normalize_cache_token(value):
+    return str(value).strip().replace("+", "plus").replace("/", "-").replace(" ", "_")
+
+
+def build_cache_version(
+    input_flag="devemo",
+    train_frame_selection="uniform",
+    test_frame_selection=None,
+    num_frames=5,
+    class_split="binary",
+):
+    if test_frame_selection is None:
+        test_frame_selection = train_frame_selection
+
+    if input_flag not in ("devemo", "devemo+"):
+        return BASE_CACHE_VERSION
+
+    resolved_num_frames = max(1, int(num_frames))
+    return (
+        f"{BASE_CACHE_VERSION}"
+        f"__tr-{_normalize_cache_token(train_frame_selection)}"
+        f"__te-{_normalize_cache_token(test_frame_selection)}"
+        f"__nf-{resolved_num_frames}"
+        f"__cls-{_normalize_cache_token(class_split)}"
+    )
 
 
 def load_data(
@@ -14,10 +42,27 @@ def load_data(
     seed=42,
     cache_dir="input/.cache",
     no_cache=False,
+    train_frame_selection="uniform",
+    test_frame_selection=None,
+    num_frames=5,
+    class_split="binary",
+    cache_version=None,
 ):
+    if test_frame_selection is None:
+        test_frame_selection = train_frame_selection
+
+    if cache_version is None:
+        cache_version = build_cache_version(
+            input_flag=input_flag,
+            train_frame_selection=train_frame_selection,
+            test_frame_selection=test_frame_selection,
+            num_frames=num_frames,
+            class_split=class_split,
+        )
+
     os.makedirs(cache_dir, exist_ok=True)
     cache_input_name = input_flag.replace("+", "plus")
-    cache_filename = f"{cache_input_name}_seed{seed}_{CACHE_VERSION}.pkl"
+    cache_filename = f"{cache_input_name}_seed{seed}_{cache_version}.pkl"
     cache_path = os.path.join(cache_dir, cache_filename)
 
     if os.path.exists(cache_path) and not no_cache:
@@ -39,7 +84,16 @@ def load_data(
     np.random.seed(seed)
 
     source = get_dataset_source(input_flag=input_flag, input_dir=input_dir)
-    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = source.load(seed=seed)
+    if input_flag in ("devemo", "devemo+"):
+        (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = source.load(
+            seed=seed,
+            train_frame_selection=train_frame_selection,
+            test_frame_selection=test_frame_selection,
+            num_frames=num_frames,
+            class_split=class_split,
+        )
+    else:
+        (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = source.load(seed=seed)
 
     print(f"{input_flag} dataset loaded from disk.")
     print_stats("X_train", X_train)

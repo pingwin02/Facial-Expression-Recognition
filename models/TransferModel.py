@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers, applications
 
-from dataset.loader import CACHE_VERSION
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
@@ -150,6 +149,7 @@ class TransferModel:
         train_debugs=None,
         val_debugs=None,
         dataset_name=None,
+        cache_label=None,
     ):
         wandb_run = None
         wandb_callback = None
@@ -176,16 +176,20 @@ class TransferModel:
             warmup_epochs = max(1, int(round(epochs * 0.3)))
             warmup_epochs = min(warmup_epochs, epochs - 1)
 
+        wandb_extra_config = {
+            "num_classes": int(num_classes),
+            "input_shape": tuple(input_shape),
+            "warmup_epochs": int(warmup_epochs),
+        }
+        if cache_label is not None:
+            wandb_extra_config["CACHE_VERSION"] = cache_label
+
         wandb_run, wandb_callback = init_wandb_run(
             model_name=cls.__name__,
             dataset_name=dataset_name,
             epochs=epochs,
             output_dir=output_dir,
-            extra_config={
-                "num_classes": int(num_classes),
-                "input_shape": tuple(input_shape),
-                "warmup_epochs": int(warmup_epochs),
-            },
+            extra_config=wandb_extra_config,
         )
 
         model.set_fine_tune_layers(trainable_backbone_layers=0)
@@ -258,7 +262,7 @@ class TransferModel:
                 validation_debugs=val_debugs,
                 dataset_name=dataset_name,
                 label_map=label_map,
-                cache_label=CACHE_VERSION,
+                cache_label=cache_label,
                 model_summary=model_summary,
             )
 
@@ -273,10 +277,14 @@ class TransferModel:
         return np.argmax(self.model.predict(images_np, verbose=0), axis=1)
 
     @classmethod
-    def eval(cls, val_tuple, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None):
+    def eval(cls, val_tuple, label_map=None, dataset_name=None, dataset_path=None, train_tuple=None, cache_label=None):
         model_prefix = cls.__name__.lower()
 
-        loaded_model, model_dir = find_and_load_model(model_prefix, dataset_name=dataset_name)
+        loaded_model, model_dir = find_and_load_model(
+            model_prefix,
+            dataset_name=dataset_name,
+            cache_version=cache_label,
+        )
         if loaded_model is None:
             print(f"Error: Model {cls.__name__} could not be loaded for evaluation.")
             return
@@ -290,5 +298,5 @@ class TransferModel:
             dataset_name=dataset_name,
             dataset_path=dataset_path,
             train_tuple=train_tuple,
-            cache_label=CACHE_VERSION,
+            cache_label=cache_label,
         )

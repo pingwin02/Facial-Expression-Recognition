@@ -27,6 +27,38 @@ TEMPORAL_TINTS = [
 TEMPORAL_ALPHAS = [1.2, 0.9, 0.0, 0.9, 1.2]
 
 
+def _get_temporal_tints_alphas(n_frames):
+    """Generate temporal tints and alphas for a given number of frames."""
+    if n_frames == 5:
+        return TEMPORAL_TINTS, TEMPORAL_ALPHAS
+
+    center = n_frames // 2
+    tints = []
+    alphas = []
+    base_colors = [
+        np.array([1.0, 0.1, 0.2], dtype=np.float32),
+        np.array([0.2, 1.0, 0.1], dtype=np.float32),
+        np.array([0.1, 0.6, 1.0], dtype=np.float32),
+        np.array([0.3, 0.1, 1.0], dtype=np.float32),
+        np.array([0.8, 0.8, 0.1], dtype=np.float32),
+        np.array([0.1, 0.9, 0.9], dtype=np.float32),
+    ]
+
+    for i in range(n_frames):
+        if i == center:
+            tints.append(None)
+            alphas.append(0.0)
+        else:
+            color_idx = i % len(base_colors)
+            if i > center:
+                color_idx = (i - 1) % len(base_colors)
+            tints.append(base_colors[color_idx])
+            distance = abs(i - center) / max(1, center)
+            alphas.append(0.9 + 0.3 * distance)
+
+    return tints, alphas
+
+
 def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_HEIGHT)):
     x1, y1, x2, y2 = crop_box
     crop_w = x2 - x1
@@ -503,7 +535,9 @@ def _transformer_select_frames(cap, candidate_indices, num_select):
     return [valid_indices[i] for i in top_k_sorted]
 
 
-def _sample_faces_from_video(video_path, detector_pack, use_transformer_selection=False):
+def _sample_faces_from_video(
+    video_path, detector_pack, use_transformer_selection=False, use_random_selection=False, use_manual_selection=False
+):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None, None
@@ -513,12 +547,53 @@ def _sample_faces_from_video(video_path, detector_pack, use_transformer_selectio
         if total_frames <= 0:
             return None, None
 
-        if use_transformer_selection:
+        if use_manual_selection:
+            from dataset.manual_frame_selector import manual_select_frames
+
+            if use_transformer_selection:
+                auto_fill_method = "transformer"
+            elif use_random_selection:
+                auto_fill_method = "random"
+            else:
+                auto_fill_method = "uniform"
+
+            manual_indices = manual_select_frames(video_path, NUM_SAMPLE_FRAMES, auto_fill_method=auto_fill_method)
+            if manual_indices is not None and len(manual_indices) == NUM_SAMPLE_FRAMES:
+                sample_indices = manual_indices
+            else:
+                # Fill remaining with the chosen auto method
+                already_selected = manual_indices if manual_indices else []
+                remaining = NUM_SAMPLE_FRAMES - len(already_selected)
+                if use_transformer_selection and remaining > 0:
+                    n_candidates = min(total_frames, max(remaining * 6, 30))
+                    candidate_indices = [
+                        int(i)
+                        for i in np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int)
+                        if int(i) not in already_selected
+                    ]
+                    auto_indices = _transformer_select_frames(cap, candidate_indices, remaining)
+                elif use_random_selection and remaining > 0:
+                    available = [i for i in range(total_frames) if i not in already_selected]
+                    auto_indices = sorted(
+                        np.random.choice(available, size=min(remaining, len(available)), replace=False).tolist()
+                    )
+                else:
+                    available = [i for i in range(total_frames) if i not in already_selected]
+                    auto_indices = np.linspace(0, max(0, len(available) - 1), remaining, dtype=int).tolist()
+                    auto_indices = [available[i] for i in auto_indices]
+                sample_indices = sorted(list(already_selected) + auto_indices)[:NUM_SAMPLE_FRAMES]
+        elif use_transformer_selection:
             n_candidates = min(total_frames, max(NUM_SAMPLE_FRAMES * 6, 30))
             candidate_indices = np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int).tolist()
             sample_indices = _transformer_select_frames(cap, candidate_indices, NUM_SAMPLE_FRAMES)
             if len(sample_indices) < NUM_SAMPLE_FRAMES:
                 sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+        elif use_random_selection:
+            sample_indices = sorted(
+                np.random.choice(
+                    max(1, total_frames - 1), size=min(NUM_SAMPLE_FRAMES, total_frames), replace=False
+                ).tolist()
+            )
         else:
             sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
 
@@ -549,11 +624,15 @@ def _to_grayscale_rgb(face_rgb):
 
 
 def _compose_temporal_chromatic(sampled_faces, include_preview=False):
-    center_face = sampled_faces[CENTER_IDX]
+    n_frames = len(sampled_faces)
+    center_idx = n_frames // 2
+    tints, alphas = _get_temporal_tints_alphas(n_frames)
+
+    center_face = sampled_faces[center_idx]
     if center_face is None:
-        for offset in range(1, NUM_SAMPLE_FRAMES):
-            for candidate in [CENTER_IDX - offset, CENTER_IDX + offset]:
-                if 0 <= candidate < NUM_SAMPLE_FRAMES and sampled_faces[candidate] is not None:
+        for offset in range(1, n_frames):
+            for candidate in [center_idx - offset, center_idx + offset]:
+                if 0 <= candidate < n_frames and sampled_faces[candidate] is not None:
                     center_face = sampled_faces[candidate]
                     break
             if center_face is not None:
@@ -566,18 +645,18 @@ def _compose_temporal_chromatic(sampled_faces, include_preview=False):
 
     diff_layers = None
     if include_preview:
-        diff_layers = [None] * NUM_SAMPLE_FRAMES
-        diff_layers[CENTER_IDX] = base_gray.copy()
+        diff_layers = [None] * n_frames
+        diff_layers[center_idx] = base_gray.copy()
 
-    for i in range(NUM_SAMPLE_FRAMES):
-        if TEMPORAL_TINTS[i] is None:
+    for i in range(n_frames):
+        if tints[i] is None:
             continue
         frame = sampled_faces[i]
         if frame is None:
             continue
 
-        color = TEMPORAL_TINTS[i]
-        alpha = TEMPORAL_ALPHAS[i]
+        color = tints[i]
+        alpha = alphas[i]
 
         diff = np.abs(frame - center_face)
         diff_magnitude = np.mean(diff, axis=-1, keepdims=True)
@@ -625,6 +704,8 @@ def process_video_temporal_encoding(
     save_checkpoint_every=1,
     resume_from_checkpoint=True,
     use_transformer_selection=False,
+    use_random_selection=False,
+    use_manual_selection=False,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -645,7 +726,9 @@ def process_video_temporal_encoding(
         video_path = os.path.join(video_dir, video_name)
         label = row["label"] if label_map is None else label_map.get(row["label"], 0)
 
-        sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack, use_transformer_selection)
+        sample_indices, sampled_faces = _sample_faces_from_video(
+            video_path, detector_pack, use_transformer_selection, use_random_selection, use_manual_selection
+        )
         if sample_indices is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
