@@ -197,10 +197,10 @@ class TransferModel:
 
         model.model.summary()
 
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=10, min_lr=1e-7, verbose=1)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=10, min_lr=1e-7, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
-            model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
+            model_filename, monitor="loss", save_best_only=True, mode="min", verbose=0
         )
 
         print(f"Starting training TransferModel for {epochs} epochs...")
@@ -213,7 +213,6 @@ class TransferModel:
             history_warmup = model.model.fit(
                 X_train,
                 y_train,
-                validation_data=(X_val, y_val),
                 epochs=warmup_epochs,
                 batch_size=16,
                 class_weight=class_weight_map,
@@ -232,7 +231,6 @@ class TransferModel:
                 history_finetune = model.model.fit(
                     X_train,
                     y_train,
-                    validation_data=(X_val, y_val),
                     initial_epoch=warmup_epochs,
                     epochs=epochs,
                     batch_size=8,

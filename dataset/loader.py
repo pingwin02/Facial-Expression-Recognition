@@ -5,7 +5,7 @@ import pickle
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-BASE_CACHE_VERSION = "video_v23_configurable_frame_selection"
+BASE_CACHE_VERSION = "v23"
 CACHE_VERSION = BASE_CACHE_VERSION
 
 
