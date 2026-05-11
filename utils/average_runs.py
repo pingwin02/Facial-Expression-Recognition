@@ -135,7 +135,7 @@ def pick_runs(groups: dict) -> list[RunRecord]:
 
 
 def summarize(runs: list[RunRecord]):
-    v_mets, p_mets, cms, labels = defaultdict(list), defaultdict(lambda: defaultdict(list)), [], []
+    v_mets, p_mets, cms, labels_list = defaultdict(list), defaultdict(lambda: defaultdict(list)), [], []
     t_curves, t_final = defaultdict(list), defaultdict(list)
 
     for r in runs:
@@ -149,8 +149,11 @@ def summarize(runs: list[RunRecord]):
                     if is_num(val):
                         p_mets[c][m].append(float(val))
         if (cm := v.get("confusion_matrix")) is not None:
-            cms.append(np.asarray(cm, float))
-            labels = v.get("confusion_matrix_labels") or v.get("labels") or labels
+            arr = np.asarray(cm, float)
+            cms.append(arr)
+            lbls = v.get("confusion_matrix_labels") or v.get("labels")
+            if lbls:
+                labels_list.append(list(lbls))
 
         for m in ("train_loss", "val_loss", "train_accuracy", "val_accuracy"):
             if s := r.training_data.get(m):
@@ -173,10 +176,34 @@ def summarize(runs: list[RunRecord]):
             "raw": arr.tolist(),
         }
 
+    # Handle confusion matrices of differing sizes by padding to the largest shape
+    if cms:
+        max_n = max(cm.shape[0] for cm in cms)
+        padded = []
+        for cm in cms:
+            n = cm.shape[0]
+            if n == max_n:
+                padded.append(cm)
+            else:
+                pad = np.zeros((max_n, max_n), float)
+                pad[:n, :n] = cm
+                padded.append(pad)
+        cm_mean = np.mean(np.stack(padded, axis=0), axis=0)
+        # choose labels: prefer the longest labels list if available, else default numeric labels
+        if labels_list:
+            labels = max(labels_list, key=len)
+            if len(labels) < max_n:
+                labels = labels + [str(i) for i in range(len(labels), max_n)]
+        else:
+            labels = [str(i) for i in range(max_n)]
+    else:
+        cm_mean = np.zeros((0, 0))
+        labels = []
+
     return (
         v_sum,
-        labels or [],
-        np.mean(cms, axis=0) if cms else np.zeros((0, 0)),
+        labels,
+        cm_mean,
         {"final_metrics": {m: mean_std(vs) for m, vs in t_final.items()}, "curves": c_sum},
     )
 
