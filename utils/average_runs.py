@@ -51,7 +51,7 @@ def mean_std(v: list[float]) -> dict:
 
 def collect_grouped_runs(root: Path) -> dict[tuple[str, str, str], list[RunRecord]]:
     grouped = defaultdict(list)
-    for ep in root.rglob("*_evaluation_metrics.json"):
+    for ep in root.glob("*/*/*/*/*_evaluation_metrics.json"):
         tp = ep.parent / ep.name.replace("evaluation", "training")
         if not tp.exists() or len(ep.parts) < 5:
             continue
@@ -76,7 +76,6 @@ def collect_grouped_runs(root: Path) -> dict[tuple[str, str, str], list[RunRecor
 
 def parse_selection(raw: str, count: int) -> list[int]:
     raw = raw.strip().lower()
-    # Empty input or explicit 'all' means select every run
     if raw == "":
         return list(range(count))
     if raw in {"default", "all"}:
@@ -176,7 +175,6 @@ def summarize(runs: list[RunRecord]):
             "raw": arr.tolist(),
         }
 
-    # Handle confusion matrices of differing sizes by padding to the largest shape
     if cms:
         max_n = max(cm.shape[0] for cm in cms)
         padded = []
@@ -189,7 +187,6 @@ def summarize(runs: list[RunRecord]):
                 pad[:n, :n] = cm
                 padded.append(pad)
         cm_mean = np.mean(np.stack(padded, axis=0), axis=0)
-        # choose labels: prefer the longest labels list if available, else default numeric labels
         if labels_list:
             labels = max(labels_list, key=len)
             if len(labels) < max_n:
@@ -287,13 +284,10 @@ def plot_evaluation_runs(v_sum: dict, path: Path):
         max_val = data["max"]
         color = colors[i % len(colors)]
 
-        # Min-Max slider bar
         ax.plot([i, i], [min_val, max_val], color=color, linewidth=2)
-        # Cap bars
         cap_width = 0.1
         ax.plot([i - cap_width, i + cap_width], [min_val, min_val], color=color, linewidth=2)
         ax.plot([i - cap_width, i + cap_width], [max_val, max_val], color=color, linewidth=2)
-        # Mean point
         ax.plot([i], [mean_val], marker="o", markersize=10, color=color)
 
     ax.set_xticks(x)
@@ -305,6 +299,44 @@ def plot_evaluation_runs(v_sum: dict, path: Path):
     plt.close(fig)
 
 
+def generate_overall_summary():
+    summary = {m: {} for m in ("accuracy", "macro_f1", "weighted_f1", "balanced_accuracy")}
+    for p in AGGREGATED_ROOT.rglob("averaged_metrics.json"):
+        try:
+            with p.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                sg = data.get("selected_group", {})
+                cache_version = sg.get("cache_version", "unknown")
+                model = sg.get("model", "unknown")
+                dataset = sg.get("dataset", "unknown")
+                val = data.get("validation", {})
+
+                for m in ("accuracy", "macro_f1", "weighted_f1", "balanced_accuracy"):
+                    if m in val:
+                        if dataset not in summary[m]:
+                            summary[m][dataset] = {}
+                        if model not in summary[m][dataset]:
+                            summary[m][dataset][model] = {}
+
+                        summary[m][dataset][model][cache_version] = {
+                            k: val[m][k] for k in ["mean", "std", "min", "max", "runs"] if k in val[m]
+                        }
+        except Exception as e:
+            print(f"Failed to read {p}: {e}")
+
+    for m in summary:
+        summary[m] = dict(sorted(summary[m].items()))
+        for dataset in summary[m]:
+            summary[m][dataset] = dict(sorted(summary[m][dataset].items()))
+            for model in summary[m][dataset]:
+                summary[m][dataset][model] = dict(sorted(summary[m][dataset][model].items()))
+
+    out_file = AGGREGATED_ROOT / "overall_summary.json"
+    with out_file.open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    print(f"Saved overall summary to {out_file}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Interactively average output runs and save summary plots.")
     parser.add_argument("--output-root", default=str(OUTPUT_ROOT), help="Root output directory")
@@ -314,44 +346,7 @@ def main() -> int:
     out_root = Path(args.output_root).resolve()
 
     if args.a:
-        summary = {m: {} for m in ("accuracy", "macro_f1", "weighted_f1", "balanced_accuracy")}
-        for p in AGGREGATED_ROOT.rglob("averaged_metrics.json"):
-            try:
-                with p.open("r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    sg = data.get("selected_group", {})
-                    cache_version = sg.get("cache_version", "unknown")
-                    model = sg.get("model", "unknown")
-                    dataset = sg.get("dataset", "unknown")
-                    val = data.get("validation", {})
-
-                    for m in ("accuracy", "macro_f1", "weighted_f1", "balanced_accuracy"):
-                        if m in val:
-                            if dataset not in summary[m]:
-                                summary[m][dataset] = {}
-                            if model not in summary[m][dataset]:
-                                summary[m][dataset][model] = {}
-
-                            summary[m][dataset][model][cache_version] = {
-                                k: val[m][k] for k in ["mean", "std", "min", "max", "runs"] if k in val[m]
-                            }
-            except Exception as e:
-                print(f"Failed to read {p}: {e}")
-
-        for m in summary:
-            # Sort datasets (devemo before devemo+)
-            summary[m] = dict(sorted(summary[m].items()))
-            for dataset in summary[m]:
-                # Sort models
-                summary[m][dataset] = dict(sorted(summary[m][dataset].items()))
-                for model in summary[m][dataset]:
-                    # Sort cache versions
-                    summary[m][dataset][model] = dict(sorted(summary[m][dataset][model].items()))
-
-        out_file = AGGREGATED_ROOT / "overall_summary.json"
-        with out_file.open("w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2, ensure_ascii=False)
-        print(f"Saved overall summary to {out_file}")
+        generate_overall_summary()
         return 0
 
     groups = collect_grouped_runs(out_root)
@@ -433,6 +428,9 @@ def main() -> int:
         for m in ("accuracy", "macro_f1", "weighted_f1", "balanced_accuracy"):
             if (met := v_sum.get(m)) and met.get("runs"):
                 print(f"  {m}: {met['mean']:.4f} ± {met['std']:.4f}")
+
+    generate_overall_summary()
+
     return 0
 
 

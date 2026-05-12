@@ -50,6 +50,10 @@ def _path_has_cache_segment(path, cache_version):
     return str(cache_version).strip().lower() in parts
 
 
+def _path_timestamp_folder(path):
+    return os.path.basename(os.path.dirname(path))
+
+
 def find_and_load_model(model_prefix="SimpleModel", dataset_name=None, cache_version=None):
     if dataset_name and cache_version:
         print(
@@ -75,7 +79,7 @@ def find_and_load_model(model_prefix="SimpleModel", dataset_name=None, cache_ver
         ):
             candidates.append(path)
 
-    candidates.sort(key=os.path.getmtime, reverse=True)
+    candidates.sort(key=_path_timestamp_folder, reverse=True)
 
     if not candidates:
         if dataset_name and cache_version:
