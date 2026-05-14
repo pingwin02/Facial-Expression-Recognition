@@ -42,6 +42,20 @@ class ResNetModel:
             X = X / 255.0
         return X
 
+    @staticmethod
+    def _build_class_weight_map(y, min_weight=0.5, max_weight=5.0):
+        y = np.asarray(y)
+        classes, counts = np.unique(y, return_counts=True)
+        total = float(np.sum(counts))
+        n_classes = float(len(classes))
+
+        class_weights = {}
+        for class_id, class_count in zip(classes, counts):
+            raw = total / (n_classes * float(class_count))
+            class_weights[int(class_id)] = float(np.clip(raw, min_weight, max_weight))
+
+        return class_weights
+
     @classmethod
     def train(
         cls,
@@ -69,6 +83,9 @@ class ResNetModel:
         if X_val.ndim == 4:
             X_val = np.expand_dims(X_val, axis=1)
 
+        class_weight_map = cls._build_class_weight_map(y_train, min_weight=0.3, max_weight=10.0)
+        print(f"Class weights: {class_weight_map}")
+
         num_classes = len(np.unique(np.concatenate([y_train, y_val])))
         input_shape = X_train.shape[1:]
 
@@ -89,12 +106,15 @@ class ResNetModel:
             extra_config=wandb_extra_config,
         )
 
+        # All layers trainable — matching original PyTorch code where entire model trains
         for layer in model.base_model.layers:
-            layer.trainable = False
+            layer.trainable = True
 
         model.compile(learning_rate=3e-4, loss="sparse_categorical_crossentropy")
 
         model.model.summary()
+
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=10, min_lr=1e-7, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
             model_filename, monitor="loss", save_best_only=True, mode="min", verbose=0
@@ -103,7 +123,7 @@ class ResNetModel:
         print(f"Starting training ResNetModel for {epochs} epochs...")
 
         try:
-            train_callbacks = [save_best]
+            train_callbacks = [save_best, reduce_lr]
             if wandb_callback is not None:
                 train_callbacks.append(wandb_callback)
 
@@ -112,7 +132,9 @@ class ResNetModel:
                 y_train,
                 epochs=epochs,
                 batch_size=16,
+                class_weight=class_weight_map,
                 callbacks=train_callbacks,
+                validation_data=(X_val, y_val),
             )
 
             history_dict = history.history

@@ -145,20 +145,25 @@ class VEATICSource(DatasetSource):
             raise RuntimeError("VEATIC dataset appears empty or missing paired rating/video files.")
 
         unique_ids = np.array(df["video_id"].dropna().unique())
-        if len(unique_ids) < 2:
+        if len(unique_ids) < 3:
             train_df = df.copy().reset_index(drop=True)
             val_df = df.iloc[0:0].copy().reset_index(drop=True)
+            test_df = df.iloc[0:0].copy().reset_index(drop=True)
         else:
             rng = np.random.default_rng(seed)
             rng.shuffle(unique_ids)
-            split_idx = int(round(len(unique_ids) * 0.8))
-            split_idx = min(max(1, split_idx), len(unique_ids) - 1)
+            train_end = int(round(len(unique_ids) * 0.8))
+            val_end = int(round(len(unique_ids) * 0.9))
+            train_end = min(max(1, train_end), len(unique_ids) - 2)
+            val_end = min(max(train_end + 1, val_end), len(unique_ids) - 1)
 
-            train_ids = set(unique_ids[:split_idx])
-            val_ids = set(unique_ids[split_idx:])
+            train_ids = set(unique_ids[:train_end])
+            val_ids = set(unique_ids[train_end:val_end])
+            test_ids = set(unique_ids[val_end:])
 
             train_df = df[df["video_id"].isin(train_ids)].copy().reset_index(drop=True)
             val_df = df[df["video_id"].isin(val_ids)].copy().reset_index(drop=True)
+            test_df = df[df["video_id"].isin(test_ids)].copy().reset_index(drop=True)
 
         all_frame_labels = sorted({label for labels in df["frame_labels"] for label in labels})
         label_map = {lbl: idx for idx, lbl in enumerate(all_frame_labels)}
@@ -188,8 +193,20 @@ class VEATICSource(DatasetSource):
             save_checkpoint_every=1,
             resume_from_checkpoint=True,
         )
+        X_test, y_test, test_debugs = process_video_frames_with_frame_labels(
+            test_df,
+            video_dir,
+            "filename",
+            label_map,
+            frames_per_video=300,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=f"veatic_test_seed{seed}",
+            save_checkpoint_every=1,
+            resume_from_checkpoint=True,
+        )
 
         cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_train_seed{seed}")
         cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_val_seed{seed}")
+        cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_test_seed{seed}")
 
-        return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map
+        return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map

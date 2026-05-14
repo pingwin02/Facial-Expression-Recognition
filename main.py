@@ -72,7 +72,7 @@ def main():
 
     ensure_dataset(INPUT_DIR, dataset_name=args.input)
 
-    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(
+    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map = load_data(
         INPUT_DIR,
         args.input,
         no_cache=args.no_cache,
@@ -119,7 +119,7 @@ def main():
                 print("Warning: --epochs argument is ignored in eval mode.")
             dataset_path = os.path.join(INPUT_DIR, args.input)
             model.eval(
-                (X_val, y_val, val_debugs),
+                (X_test, y_test, test_debugs),
                 label_map=label_map,
                 dataset_name=args.input,
                 dataset_path=dataset_path,

@@ -117,7 +117,7 @@ class DevemoSource(DatasetSource):
 
         df, video_dir, id_col, filename_col = self._build_dataframe(class_split=class_split)
 
-        train_df, val_df = split_data(df, id_col, seed=seed)
+        train_df, val_df, test_df = split_data(df, id_col, seed=seed)
         label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
         checkpoint_dir = os.path.join(self.input_dir, ".tmp")
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -129,6 +129,7 @@ class DevemoSource(DatasetSource):
         )
         train_checkpoint_prefix = f"{self.dataset_name}_train_seed{seed}_{checkpoint_tag}"
         val_checkpoint_prefix = f"{self.dataset_name}_val_seed{seed}_{checkpoint_tag}"
+        test_checkpoint_prefix = f"{self.dataset_name}_test_seed{seed}_{checkpoint_tag}"
 
         def _parse_selection(method):
             """Return (use_transformer, use_random, manual) flags from method string."""
@@ -167,8 +168,22 @@ class DevemoSource(DatasetSource):
             use_random_selection=test_random,
             use_manual_selection=test_manual,
         )
+        X_test, y_test, test_debugs = process_video_temporal_encoding(
+            test_df,
+            video_dir,
+            filename_col,
+            label_map,
+            checkpoint_dir=checkpoint_dir,
+            checkpoint_prefix=test_checkpoint_prefix,
+            save_checkpoint_every=10,
+            resume_from_checkpoint=True,
+            use_transformer_selection=test_transformer,
+            use_random_selection=test_random,
+            use_manual_selection=test_manual,
+        )
 
         cleanup_iteration_checkpoints(checkpoint_dir, train_checkpoint_prefix)
         cleanup_iteration_checkpoints(checkpoint_dir, val_checkpoint_prefix)
+        cleanup_iteration_checkpoints(checkpoint_dir, test_checkpoint_prefix)
 
-        return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map
+        return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map

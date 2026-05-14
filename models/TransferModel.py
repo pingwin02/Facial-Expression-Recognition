@@ -217,6 +217,7 @@ class TransferModel:
                 batch_size=16,
                 class_weight=class_weight_map,
                 callbacks=warmup_callbacks,
+                validation_data=(X_val, y_val),
             )
 
             if epochs > warmup_epochs:
@@ -236,6 +237,7 @@ class TransferModel:
                     batch_size=8,
                     callbacks=finetune_callbacks,
                     class_weight=class_weight_map,
+                    validation_data=(X_val, y_val),
                 )
 
                 history_dict = history_warmup.history

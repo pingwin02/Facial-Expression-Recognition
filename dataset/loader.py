@@ -5,7 +5,7 @@ import pickle
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-BASE_CACHE_VERSION = "v23"
+BASE_CACHE_VERSION = "v24"
 CACHE_VERSION = BASE_CACHE_VERSION
 
 
@@ -72,9 +72,11 @@ def load_data(
             print(f"{input_flag} dataset loaded from cache.")
             print_stats("X_train", result[0][0])
             print_stats("X_val", result[1][0])
-            print_stats("y_train", result[0][1], result[2])
-            print_stats("y_val", result[1][1], result[2])
-            print_stats("split", None, result[2], split_arrays=(result[0][1], result[1][1]))
+            print_stats("X_test", result[2][0])
+            print_stats("y_train", result[0][1], result[3])
+            print_stats("y_val", result[1][1], result[3])
+            print_stats("y_test", result[2][1], result[3])
+            print_stats("split", None, result[3], split_arrays=(result[0][1], result[1][1], result[2][1]))
             return result
 
     else:
@@ -85,24 +87,35 @@ def load_data(
 
     source = get_dataset_source(input_flag=input_flag, input_dir=input_dir)
     if input_flag in ("devemo", "devemo+"):
-        (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = source.load(
-            seed=seed,
-            train_frame_selection=train_frame_selection,
-            test_frame_selection=test_frame_selection,
-            num_frames=num_frames,
-            class_split=class_split,
+        (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map = (
+            source.load(
+                seed=seed,
+                train_frame_selection=train_frame_selection,
+                test_frame_selection=test_frame_selection,
+                num_frames=num_frames,
+                class_split=class_split,
+            )
         )
     else:
-        (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = source.load(seed=seed)
+        (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map = (
+            source.load(seed=seed)
+        )
 
     print(f"{input_flag} dataset loaded from disk.")
     print_stats("X_train", X_train)
     print_stats("X_val", X_val)
+    print_stats("X_test", X_test)
     print_stats("y_train", y_train, label_map)
     print_stats("y_val", y_val, label_map)
-    print_stats("split", None, label_map, split_arrays=(y_train, y_val))
+    print_stats("y_test", y_test, label_map)
+    print_stats("split", None, label_map, split_arrays=(y_train, y_val, y_test))
 
-    result = ((X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map)
+    result = (
+        (X_train, y_train, train_debugs),
+        (X_val, y_val, val_debugs),
+        (X_test, y_test, test_debugs),
+        label_map,
+    )
 
     print(f"Saving cache to {cache_path}...")
     with open(cache_path, "wb") as f:
