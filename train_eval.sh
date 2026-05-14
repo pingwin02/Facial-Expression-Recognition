@@ -79,9 +79,10 @@ REAL_INPUTS=()
 for DIR in "$INPUT_DIR"/*/; do
     [ -d "$DIR" ] || continue
     INPUT_NAME=$(basename "$DIR")
-    [[ "$INPUT_NAME" == ".cache" || "$INPUT_NAME" == "__pycache__" ]] && continue
+    [[ "$INPUT_NAME" == ".cache" || "$INPUT_NAME" == "__pycache__" || "$INPUT_NAME" == ".tmp" ]] && continue
     REAL_INPUTS+=("$INPUT_NAME")
 done
+REAL_INPUTS+=("devemo_combined")
 
 if [ ${#REAL_INPUTS[@]} -eq 0 ]; then
     echo "Error: No input directories found in $INPUT_DIR."
@@ -116,7 +117,7 @@ CLASS_SPLIT=""
 
 IS_DEVEMO=false
 for INPUT_NAME in "${INPUTS_TO_RUN[@]}"; do
-    if [[ "$INPUT_NAME" == "devemo" || "$INPUT_NAME" == "devemo+" ]]; then
+    if [[ "$INPUT_NAME" == "devemo" || "$INPUT_NAME" == "devemo+" || "$INPUT_NAME" == "devemo_combined" ]]; then
         IS_DEVEMO=true
         break
     fi
@@ -239,7 +240,7 @@ for ((LOOP_INDEX=1; LOOP_INDEX<=LOOP_COUNT; LOOP_INDEX++)); do
                 CMD=(python -u main.py --input "$INPUT_NAME" --mode "$MODE" --epochs "$EPOCHS" --model "$MODEL")
 
                 # Add frame selection args only for devemo/devemo+
-                if [[ "$INPUT_NAME" == "devemo" || "$INPUT_NAME" == "devemo+" ]]; then
+                if [[ "$INPUT_NAME" == "devemo" || "$INPUT_NAME" == "devemo+" || "$INPUT_NAME" == "devemo_combined" ]]; then
                     if [ -n "$TRAIN_FRAME_SEL" ]; then
                         CMD+=(--train-frame-selection "$TRAIN_FRAME_SEL")
                     fi

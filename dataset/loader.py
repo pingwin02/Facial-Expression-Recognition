@@ -23,7 +23,7 @@ def build_cache_version(
     if test_frame_selection is None:
         test_frame_selection = train_frame_selection
 
-    if input_flag not in ("devemo", "devemo+"):
+    if input_flag not in ("devemo", "devemo+", "devemo_combined"):
         return BASE_CACHE_VERSION
 
     resolved_num_frames = max(1, int(num_frames))
@@ -86,7 +86,7 @@ def load_data(
     np.random.seed(seed)
 
     source = get_dataset_source(input_flag=input_flag, input_dir=input_dir)
-    if input_flag in ("devemo", "devemo+"):
+    if input_flag in ("devemo", "devemo+", "devemo_combined"):
         (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map = (
             source.load(
                 seed=seed,

@@ -20,7 +20,7 @@ def main():
         "--input",
         type=str,
         required=True,
-        choices=["devemo", "devemo+", "fer2013", "veatic"],
+        choices=["devemo", "devemo+", "devemo_combined", "fer2013", "veatic"],
         help="Input format/folder",
     )
     parser.add_argument("--no-cache", action="store_true", help="Disable caching")

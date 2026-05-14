@@ -3,37 +3,15 @@ set -e
 
 echo "==============================================="
 
-./train_eval.sh -m 0 -i 0 -t 0 -T 0 -f 5 -l 5 -c 0
+# devemo_combined (input index 4), uniform/uniform, loop 10, binary and all classes
 
-./train_eval.sh -m 0 -i 0 -t 0 -T 3 -f 5 -l 5 -c 0
+./train_eval.sh -m 0 -i 4 -t 0 -T 0 -f 5 -l 10 -c 0
 
-./train_eval.sh -m 0 -i 0 -t 2 -T 0 -f 5 -l 5 -c 0
+./train_eval.sh -m 0 -i 4 -t 0 -T 0 -f 5 -l 10 -c 1
 
-./train_eval.sh -m 0 -i 0 -t 2 -T 1 -f 5 -l 5 -c 0
+./train_eval.sh -m 1 -i 4 -t 0 -T 0 -f 5 -l 10 -c 0
 
-./train_eval.sh -m 0 -i 1 -t 0 -T 0 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 0 -i 1 -t 0 -T 3 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 0 -i 1 -t 2 -T 0 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 0 -i 1 -t 2 -T 1 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 0 -t 0 -T 0 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 0 -t 0 -T 3 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 0 -t 2 -T 0 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 0 -t 2 -T 1 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 1 -t 0 -T 0 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 1 -t 0 -T 3 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 1 -t 2 -T 0 -f 5 -l 5 -c 0
-
-./train_eval.sh -m 1 -i 1 -t 2 -T 1 -f 5 -l 5 -c 0
+./train_eval.sh -m 1 -i 4 -t 0 -T 0 -f 5 -l 10 -c 1
 
 echo ""
 echo "==============================================="
