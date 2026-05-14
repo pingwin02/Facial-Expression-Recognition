@@ -714,8 +714,6 @@ def process_video_temporal_encoding(
 
     detector_pack = get_dlib_detector_predictor()
 
-    first_run = True
-
     for row_idx, (_, row) in enumerate(
         tqdm(df.iterrows(), desc="Processing videos (temporal encoding)", total=len(df), unit="video")
     ):
@@ -739,10 +737,6 @@ def process_video_temporal_encoding(
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
-
-        if first_run:
-            print(f"\nTemporal encoding shape: {result.shape}")
-            first_run = False
 
         X.append(result)
         y.append(label)
