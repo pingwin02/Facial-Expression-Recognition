@@ -1,18 +1,26 @@
 #!/bin/bash
 set -e
 
-echo "==============================================="
+echo "======================================================"
+echo "Starting all test runs with various configurations..."
+echo "======================================================"
 
-# devemo_combined (input index 4), uniform/uniform, loop 10, binary and all classes
+MODELS=("TransferModel" "ResNetModel")
+INPUTS=("devemo_combined")
+CLASSES=("binary" "all")
 
-./train_eval.sh -m 0 -i 4 -t 0 -T 0 -f 5 -l 10 -c 0
+for model in "${MODELS[@]}"; do
+    for input in "${INPUTS[@]}"; do
+        for cls in "${CLASSES[@]}"; do
+            echo ""
+            echo "--- Model=$model Input=$input Class=$cls ---"
+            python main.py --model "$model" --input "$input" --mode both --epochs 100 \
+                --train-frame-selection uniform --test-frame-selection uniform \
+                --num-frames 5 --class-split "$cls" --loop 10
+        done
+    done
+done
 
-./train_eval.sh -m 0 -i 4 -t 0 -T 0 -f 5 -l 10 -c 1
-
-./train_eval.sh -m 1 -i 4 -t 0 -T 0 -f 5 -l 10 -c 0
-
-./train_eval.sh -m 1 -i 4 -t 0 -T 0 -f 5 -l 10 -c 1
-
-echo ""
-echo "==============================================="
+echo "======================================================"
 echo "All test runs completed successfully!"
+echo "======================================================"

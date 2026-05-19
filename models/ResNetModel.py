@@ -6,21 +6,53 @@ from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
 from utils.wandb_utils import init_wandb_run, finish_wandb_run
+from models._base import BaseModel
 
 
-class ResNetModel:
+class ResNetModel(BaseModel):
     def __init__(self, input_shape=(8, 224, 224, 3), num_classes=2):
         inputs = layers.Input(shape=input_shape)
 
+        data_augmentation = models.Sequential(
+            [
+                layers.RandomFlip("horizontal"),
+                layers.RandomContrast(0.2),
+                layers.RandomBrightness(0.15),
+                layers.RandomRotation(0.08),
+                layers.RandomZoom(height_factor=(-0.1, 0.15), width_factor=(-0.1, 0.15)),
+            ],
+            name="frame_aug",
+        )
+
+        x = layers.TimeDistributed(data_augmentation, name="video_aug")(inputs)
+        x = layers.TimeDistributed(layers.Rescaling(scale=1.0 / 127.5, offset=-1.0))(x)
+
         self.base_model = applications.ResNet50(input_shape=(224, 224, 3), include_top=False, weights="imagenet")
 
-        x = layers.TimeDistributed(self.base_model)(inputs)
+        x = layers.TimeDistributed(self.base_model)(x)
         x = layers.TimeDistributed(layers.GlobalAveragePooling2D())(x)
         x = layers.GlobalAveragePooling1D()(x)
 
+        x = layers.BatchNormalization()(x)
+        x = layers.Dropout(0.4)(x)
         outputs = layers.Dense(num_classes, activation="softmax")(x)
 
         self.model = models.Model(inputs, outputs)
+
+    def set_fine_tune_layers(self, trainable_backbone_layers):
+        trainable_backbone_layers = max(0, int(trainable_backbone_layers))
+        total_layers = len(self.base_model.layers)
+
+        if trainable_backbone_layers == 0:
+            for layer in self.base_model.layers:
+                layer.trainable = False
+            return
+
+        freeze_until = max(0, total_layers - trainable_backbone_layers)
+        for layer in self.base_model.layers[:freeze_until]:
+            layer.trainable = False
+        for layer in self.base_model.layers[freeze_until:]:
+            layer.trainable = True
 
     def compile(self, optimizer="adam", loss="sparse_categorical_crossentropy", metrics=None, learning_rate=3e-4):
         if metrics is None:
@@ -106,38 +138,59 @@ class ResNetModel:
             extra_config=wandb_extra_config,
         )
 
-        # All layers trainable — matching original PyTorch code where entire model trains
-        for layer in model.base_model.layers:
-            layer.trainable = True
+        if epochs <= 1:
+            warmup_epochs = epochs
+        else:
+            warmup_epochs = max(1, int(round(epochs * 0.3)))
+            warmup_epochs = min(warmup_epochs, epochs - 1)
 
-        model.compile(learning_rate=3e-4, loss="sparse_categorical_crossentropy")
+        model.set_fine_tune_layers(trainable_backbone_layers=0)
+        model.compile(learning_rate=1e-3, loss="sparse_categorical_crossentropy")
 
         model.model.summary()
 
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=10, min_lr=1e-7, verbose=1)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=8, min_lr=1e-7, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
-            model_filename, monitor="loss", save_best_only=True, mode="min", verbose=0
+            model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
         )
 
-        print(f"Starting training ResNetModel for {epochs} epochs...")
+        print(
+            f"Starting training ResNetModel for {epochs} epochs (warmup: {warmup_epochs}, finetune: {epochs - warmup_epochs})..."
+        )
 
         try:
             train_callbacks = [save_best, reduce_lr]
             if wandb_callback is not None:
                 train_callbacks.append(wandb_callback)
 
-            history = model.model.fit(
+            history_warmup = model.model.fit(
                 X_train,
                 y_train,
-                epochs=epochs,
+                epochs=warmup_epochs,
                 batch_size=16,
                 class_weight=class_weight_map,
                 callbacks=train_callbacks,
                 validation_data=(X_val, y_val),
             )
 
-            history_dict = history.history
+            model.set_fine_tune_layers(trainable_backbone_layers=60)
+            model.compile(learning_rate=5e-5, loss="sparse_categorical_crossentropy")
+
+            history_finetune = model.model.fit(
+                X_train,
+                y_train,
+                initial_epoch=warmup_epochs,
+                epochs=epochs,
+                batch_size=8,
+                class_weight=class_weight_map,
+                callbacks=train_callbacks,
+                validation_data=(X_val, y_val),
+            )
+
+            history_dict = {}
+            for key in history_warmup.history:
+                history_dict[key] = history_warmup.history[key] + history_finetune.history[key]
 
             model.model.load_weights(model_filename)
             model.model.save(model_filename)

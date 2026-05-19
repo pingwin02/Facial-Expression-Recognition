@@ -261,7 +261,6 @@ def plot_veatic_timeline(
 def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictions, output_path=None, threshold=0.0):
     fig, ax = plt.subplots(figsize=(14, 12))
 
-    # Determine colors based on correctness
     colors = []
     for true_label, pred_label in zip(labels, predictions):
         if true_label == pred_label:
@@ -269,12 +268,10 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         else:
             colors.append("red")
 
-    # Plot points
     scatter = ax.scatter(
         valence_vals, arousal_vals, c=colors, s=90, alpha=0.55, edgecolors="black", linewidth=1.2, zorder=8
     )
 
-    # Draw threshold lines
     ax.axhline(y=threshold, color="black", linestyle="-", linewidth=3, label="Classification Threshold")
     ax.axvline(x=threshold, color="black", linestyle="-", linewidth=3)
 
@@ -290,7 +287,6 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         pad=20,
     )
 
-    # Quadrant labels with better descriptions
     ax.text(
         0.55,
         0.55,
@@ -339,7 +335,6 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         bbox=dict(boxstyle="round", facecolor="#3498db", alpha=0.4, edgecolor="black", linewidth=2),
     )
 
-    # Legend (dots only)
     correct_count = sum(color == "green" for color in colors)
     incorrect_count = sum(color == "red" for color in colors)
     correct_handle = Line2D(

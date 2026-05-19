@@ -6,9 +6,10 @@ from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
 from utils.wandb_utils import init_wandb_run, finish_wandb_run
+from models._base import BaseModel
 
 
-class TransferModel:
+class TransferModel(BaseModel):
     def __init__(self, input_shape=(8, 224, 224, 3), num_classes=7):
         inputs = layers.Input(shape=input_shape)
 
@@ -197,10 +198,10 @@ class TransferModel:
 
         model.model.summary()
 
-        reduce_lr = callbacks.ReduceLROnPlateau(monitor="loss", factor=0.5, patience=10, min_lr=1e-7, verbose=1)
+        reduce_lr = callbacks.ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=8, min_lr=1e-7, verbose=1)
 
         save_best = callbacks.ModelCheckpoint(
-            model_filename, monitor="loss", save_best_only=True, mode="min", verbose=0
+            model_filename, monitor="val_loss", save_best_only=True, mode="min", verbose=0
         )
 
         print(f"Starting training TransferModel for {epochs} epochs...")

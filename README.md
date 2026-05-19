@@ -25,24 +25,62 @@ conda activate fer
 cd Facial-Expression-Recognition
 ```
 
-### Option 1: Run directly with Python (`main.py`)
+### Usage
 
-Train:
+All training/evaluation logic is handled by `main.py`. Run without arguments for interactive mode (prompts for all parameters with defaults), or pass arguments directly.
 
-```bash
-python main.py --input devemo+ --mode train --epochs 100 --model TransferModel
-```
-
-Evaluate:
+For full help and available options:
 
 ```bash
-python main.py --input devemo+ --mode eval --model TransferModel
+python main.py --help
 ```
 
-Useful values:
+Arguments accept both **names** and **numeric indices** (e.g. `--model 0` or `--model ResNetModel`).
 
-- `--input`: `devemo`, `devemo+`, `fer2013` and other
-- `--model`: `TransferModel` and other
+### Examples
+
+Train and evaluate ResNetModel on devemo_combined, 5 frames, binary classes:
+
+```bash
+python main.py --model ResNetModel --input devemo_combined --mode both --epochs 100 \
+    --train-frame-selection uniform --test-frame-selection uniform --num-frames 5 --class-split binary
+```
+
+Same using numeric indices:
+
+```bash
+python main.py --model 0 --input 4 --mode 2 --epochs 100 \
+    --train-frame-selection 0 --test-frame-selection 0 --num-frames 5 --class-split 0
+```
+
+Interactive mode (prompts for everything):
+
+```bash
+python main.py
+```
+
+### Parameters
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--model` | Model name or index | (interactive) |
+| `--input` | Dataset name or index | (interactive) |
+| `--mode` | `train`, `eval`, `both` (or 0-2) | `both` |
+| `--epochs` | Number of training epochs | 100 |
+| `--train-frame-selection` | Frame selection for training | `uniform` |
+| `--test-frame-selection` | Frame selection for testing | same as train |
+| `--num-frames` | Frames per video | 5 |
+| `--class-split` | `binary` or `all` (or 0-1) | `binary` |
+| `--loop` | Number of full run loops | 1 |
+| `--no-cache` | Disable dataset caching | off |
+
+### Quick regression check
+
+Run the bundled smoke-test script:
+
+```bash
+./run_tests.sh
+```
 
 ### Optional: Weights & Biases (wandb) logging
 
@@ -59,47 +97,37 @@ WANDB_PROJECT=facial-expression-recognition
 
 If `WANDB_API_KEY` is missing, training runs normally without wandb.
 
-### Option 2: Run with bash script (`train_eval.sh`)
+## Misc scripts
 
-The script runs both phases (`train` then `eval`) and supports menu index selection.
+Helper scripts in `misc/` for analysis and visualization:
 
-Example (TransferModel + devemo+):
-
-```bash
-./train_eval.sh -m 1 -i 0
-```
-
-Parameters:
-
-- `-e` epochs (default `100`)
-- `-m` model index from menu
-- `-i` input index from menu
-- `-M` mode: `train`, `eval` or `both` (default `both`)
-- `-l` loops (default `1`)
+| Script | Description | Example |
+|--------|-------------|---------|
+| `average_runs.py` | Averages metrics across multiple training runs in `output/` and generates summary plots | `python misc/average_runs.py` |
+| `dataset_statistics.py` | Generates class distribution plots for devemo/devemo+ datasets | `python misc/dataset_statistics.py` |
+| `temporal_overlay_preview.py` | Renders temporal encoding preview (sampled frames + diff layers) for a video | `python misc/temporal_overlay_preview.py --video PATH` |
+| `veatic_single_film_timeline.py` | Plots arousal/valence frame-label timeline for a single VEATIC film | `python misc/veatic_single_film_timeline.py --video-id 0` |
+| `view_cache_pkl_frames.py` | Visualizes frames stored in cache `.pkl` files | `python misc/view_cache_pkl_frames.py` |
 
 ## Useful commands
 
-- **Run script in background**: To run a script in the background, you can use the `nohup` command:
+- **Run script in background and save PID**:
   ```bash
-  nohup ./train_eval.sh &> out.log &
+  nohup ./run_tests.sh &> out.log & echo $! > out.pid
   ```
-- **Check GPU & RAM usage**: To check the GPU & RAM usage, you can use the `nvidia-smi` and `free` command:
+- **Kill script and all its Python subprocesses**:
+  ```bash
+  kill -9 -$(cat out.pid)
+  ```
+- **Check if process or its subprocesses are running**:
+  ```bash
+  pgrep -g $(cat out.pid) -a
+  ```
+- **Check GPU & RAM usage**:
   ```bash
   watch -n 0.5 -d "nvidia-smi && free -h"
   ```
-- **Check logs**: To check the logs of a running script, you can use the `tail` command:
+- **Check logs**:
   ```bash
-  tail -f out.log
-  ```
-- **Kill a process**: To kill a process, you can use the `kill` command:
-  ```bash
-  kill -9 <pid>
-  ```
-  You can find the PID of a process using the `ps` command:
-  ```bash
-  ps -ef | grep python
-  ```
-  or if you want to kill all processes with a specific name:
-  ```bash
-  pkill -f <process_name>
+  tail -F out.log
   ```

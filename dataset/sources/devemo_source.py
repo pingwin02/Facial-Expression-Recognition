@@ -65,6 +65,28 @@ class DevemoSource(DatasetSource):
         normalized = df["label"].apply(lambda lbl: self._normalize_label(lbl)).dropna()
         return build_distribution_result(normalized.value_counts().to_dict())
 
+    def participants_info(self):
+        if self.plus_variant:
+            json_path = os.path.join(self.dataset_path, "devemo+.json")
+            if not os.path.exists(json_path):
+                return None
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            df = pd.DataFrame(data)
+            if "participant" not in df:
+                return None
+            ids = sorted(df["participant"].dropna().unique().tolist())
+        else:
+            csv_path = os.path.join(self.dataset_path, "_clips_info.csv")
+            if not os.path.exists(csv_path):
+                return None
+            df = pd.read_csv(csv_path, sep=";")
+            if "id_examined" not in df:
+                return None
+            ids = sorted(df["id_examined"].dropna().unique().tolist())
+
+        return {"num_participants": len(ids), "participant_ids": ids}
+
     @staticmethod
     def _normalize_label(label, class_split="binary"):
         if isinstance(label, str):
@@ -132,7 +154,6 @@ class DevemoSource(DatasetSource):
         test_checkpoint_prefix = f"{self.dataset_name}_test_seed{seed}_{checkpoint_tag}"
 
         def _parse_selection(method):
-            """Return (use_transformer, use_random, manual) flags from method string."""
             manual = method.startswith("manual_")
             base = method.replace("manual_", "")
             use_transformer = base == "transformer"

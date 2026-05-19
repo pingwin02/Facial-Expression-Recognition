@@ -7,6 +7,7 @@ from sklearn.metrics import (
     f1_score,
 )
 
+from utils.gradcam import save_gradcam_grid
 from utils.image import save_sample_frames
 from utils.plotting import save_confusion_matrix
 from utils.veatic_visualization import create_veatic_visualizations
@@ -447,6 +448,26 @@ def evaluate_model_on_data(
         cols=3,
     )
 
+    try:
+        gradcam_frames = X_val[selected_indices]
+        if hasattr(gradcam_frames, "ndim") and gradcam_frames.ndim == 4:
+            gradcam_frames = np.expand_dims(gradcam_frames, axis=1)
+        save_gradcam_grid(
+            loaded_model,
+            gradcam_frames,
+            preds_sample,
+            labels_sample,
+            debugs_sample,
+            output_dir,
+            model_name=model_name,
+            dataset_name=dataset_name,
+            accuracy=accuracy,
+            filename=f"{model_name}_gradcam.png",
+            cols=3,
+        )
+    except Exception as e:
+        print(f"Warning: GradCAM generation failed: {e}")
+
     if dataset_name == "veatic" and dataset_path is not None:
         print(f"Generating VEATIC visualizations...")
         selected_videos_from_samples = set()
@@ -502,18 +523,21 @@ def evaluate_model_on_data(
     for video_name in list(eval_frame_ids_per_video.keys()):
         eval_frame_ids_per_video[video_name] = sorted(eval_frame_ids_per_video[video_name])
 
-    train_count = None
-    if train_tuple is not None and len(train_tuple) > 0 and train_tuple[0] is not None:
-        try:
-            train_count = int(len(train_tuple[0]))
-        except Exception:
-            train_count = None
+    eval_participants = set()
+    for d in val_debugs:
+        if isinstance(d, dict):
+            p = d.get("participant")
+            if p:
+                eval_participants.add(str(p))
+    eval_participants = sorted(eval_participants)
 
     test_count = int(len(X_val))
     metrics_json["data_summary"] = {
-        "train_samples": train_count,
         "test_samples": test_count,
+        "test_participants": len(eval_participants),
+        "test_participant_ids": eval_participants,
         "evaluation_videos": int(len(eval_frames_per_video)),
+        "evaluation_video_names": sorted(eval_frames_per_video.keys()),
         "evaluation_frames_total": int(sum(eval_frames_per_video.values())),
         "example_videos": int(len(example_frames_per_video)),
         "example_frames_total": int(len(selected_indices)),

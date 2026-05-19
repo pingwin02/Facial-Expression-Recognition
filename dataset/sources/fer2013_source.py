@@ -58,7 +58,6 @@ class FER2013Source(DatasetSource):
         cleanup_iteration_checkpoints(checkpoint_dir, f"fer2013_train_seed{seed}")
         cleanup_iteration_checkpoints(checkpoint_dir, f"fer2013_val_seed{seed}")
 
-        # Split test set into val (50%) and test (50%)
         rng = np.random.default_rng(seed)
         n = len(X_val)
         indices = rng.permutation(n)

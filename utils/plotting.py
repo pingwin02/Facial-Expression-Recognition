@@ -32,6 +32,19 @@ def _summarize_frames_by_video(debugs):
     return frames_per_video, frame_ids_per_video
 
 
+def _extract_participants(debugs):
+    participants = set()
+    if not debugs:
+        return sorted(participants)
+    for debug in debugs:
+        if not isinstance(debug, dict):
+            continue
+        p = debug.get("participant")
+        if p:
+            participants.add(str(p))
+    return sorted(participants)
+
+
 def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="confusion_matrix.png"):
     from sklearn.metrics import confusion_matrix
     import seaborn as sns
@@ -145,6 +158,9 @@ def plot_metrics(
     train_frames_per_video, _ = _summarize_frames_by_video(training_debugs)
     val_frames_per_video, _ = _summarize_frames_by_video(validation_debugs)
 
+    train_participants = _extract_participants(training_debugs)
+    val_participants = _extract_participants(validation_debugs)
+
     metrics["dataset"] = dataset_name
     metrics["model"] = model_name
     if cache_label is not None:
@@ -155,9 +171,15 @@ def plot_metrics(
         metrics["model_architecture"] = model_summary
     metrics["data_summary"] = {
         "training_videos": int(len(train_frames_per_video)),
+        "training_video_names": sorted(train_frames_per_video.keys()),
         "training_frames_total": int(sum(train_frames_per_video.values())),
+        "training_participants": len(train_participants),
+        "training_participant_ids": train_participants,
         "validation_videos": int(len(val_frames_per_video)),
+        "validation_video_names": sorted(val_frames_per_video.keys()),
         "validation_frames_total": int(sum(val_frames_per_video.values())),
+        "validation_participants": len(val_participants),
+        "validation_participant_ids": val_participants,
     }
 
     metrics_filename = f"{model_name}_training_metrics.json" if model_name else "training_metrics.json"

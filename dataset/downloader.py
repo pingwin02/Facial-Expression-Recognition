@@ -27,6 +27,7 @@ def ensure_dataset(input_dir, dataset_name):
             dataset_zip=dataset_zip,
             required_marker=source.required_marker,
             labels_distribution=source.label_distribution(),
+            participants=source.participants_info(),
         )
         print(f"{dataset_name} dataset already prepared at {dataset_path}.")
         return
@@ -50,6 +51,7 @@ def ensure_dataset(input_dir, dataset_name):
         dataset_zip=dataset_zip,
         required_marker=source.required_marker,
         labels_distribution=source.label_distribution(),
+        participants=source.participants_info(),
     )
 
     if not source.is_ready():

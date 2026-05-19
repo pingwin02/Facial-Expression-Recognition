@@ -28,7 +28,6 @@ TEMPORAL_ALPHAS = [1.2, 0.9, 0.0, 0.9, 1.2]
 
 
 def _get_temporal_tints_alphas(n_frames):
-    """Generate temporal tints and alphas for a given number of frames."""
     if n_frames == 5:
         return TEMPORAL_TINTS, TEMPORAL_ALPHAS
 
@@ -503,7 +502,6 @@ def _get_vit():
 
 
 def _transformer_select_frames(cap, candidate_indices, num_select):
-    """Use pre-trained ViT to extract features, then score frames by attention for selection."""
     import torch
 
     frames_rgb = []
@@ -524,11 +522,10 @@ def _transformer_select_frames(cap, candidate_indices, num_select):
     inputs = processor(images=frames_rgb, return_tensors="pt")
     with torch.no_grad():
         out = model(**inputs)
-    cls_features = out.last_hidden_state[:, 0, :]  # (N, 768)
+    cls_features = out.last_hidden_state[:, 0, :]
 
-    # self-attention score: how much each frame attends to all others
-    sim = torch.matmul(cls_features, cls_features.T)  # (N, N)
-    scores = sim.mean(dim=1).numpy()  # (N,)
+    sim = torch.matmul(cls_features, cls_features.T)
+    scores = sim.mean(dim=1).numpy()
 
     top_k = np.argsort(scores)[-num_select:]
     top_k_sorted = sorted(top_k)
@@ -561,7 +558,6 @@ def _sample_faces_from_video(
             if manual_indices is not None and len(manual_indices) == NUM_SAMPLE_FRAMES:
                 sample_indices = manual_indices
             else:
-                # Fill remaining with the chosen auto method
                 already_selected = manual_indices if manual_indices else []
                 remaining = NUM_SAMPLE_FRAMES - len(already_selected)
                 if use_transformer_selection and remaining > 0:
@@ -740,12 +736,16 @@ def process_video_temporal_encoding(
 
         X.append(result)
         y.append(label)
-        debugs.append(
-            {
-                "video": video_name,
-                "sample_indices": sample_indices,
-            }
-        )
+
+        debug_entry = {
+            "video": video_name,
+            "sample_indices": sample_indices,
+        }
+        for pcol in ("participant", "id_examined", "_participant"):
+            if pcol in row.index:
+                debug_entry["participant"] = str(row[pcol])
+                break
+        debugs.append(debug_entry)
 
         if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
             _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)

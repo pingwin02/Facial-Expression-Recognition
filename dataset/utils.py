@@ -135,7 +135,6 @@ def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="la
         train_df = df[df[id_col].isin(train_ids)].reset_index(drop=True)
         holdout_df = df[df[id_col].isin(holdout_ids)].reset_index(drop=True)
 
-    # Split holdout into val and test
     holdout_unique_ids = np.array(holdout_df[id_col].dropna().unique())
     rng2 = np.random.default_rng(seed + 1)
     rng2.shuffle(holdout_unique_ids)
@@ -366,6 +365,7 @@ def write_dataset_details_json(
     dataset_zip,
     required_marker,
     labels_distribution,
+    participants=None,
 ):
     details_path = os.path.join(dataset_path, "!dataset_details.json")
     details = {
@@ -381,6 +381,9 @@ def write_dataset_details_json(
         "summary": summarize_dataset_folder(dataset_path),
         "labels": labels_distribution,
     }
+
+    if participants is not None:
+        details["participants"] = participants
 
     with open(details_path, "w", encoding="utf-8") as f:
         json.dump(details, f, ensure_ascii=False, indent=2)

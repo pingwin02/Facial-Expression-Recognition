@@ -45,22 +45,22 @@ class DevemoCombinedSource(DatasetSource):
         return self._devemo.is_ready() and self._devemo_plus.is_ready()
 
     def _build_combined_dataframe(self, class_split="binary"):
-        df1, video_dir1, _, filename_col1 = self._devemo._build_dataframe(class_split=class_split)
-        df2, video_dir2, _, filename_col2 = self._devemo_plus._build_dataframe(class_split=class_split)
+        df1, video_dir1, id_col1, filename_col1 = self._devemo._build_dataframe(class_split=class_split)
+        df2, video_dir2, id_col2, filename_col2 = self._devemo_plus._build_dataframe(class_split=class_split)
 
         df1 = df1.copy()
         df1["_video_path"] = df1[filename_col1].apply(lambda f: os.path.join(video_dir1, f))
         df1["_source"] = "devemo"
-        df1["_combined_id"] = "d_" + df1.index.astype(str)
+        df1["_participant"] = "d_" + df1[id_col1].astype(str)
 
         df2 = df2.copy()
         df2["_video_path"] = df2[filename_col2].apply(lambda f: os.path.join(video_dir2, f))
         df2["_source"] = "devemo+"
-        df2["_combined_id"] = "dp_" + df2.index.astype(str)
+        df2["_participant"] = "dp_" + df2[id_col2].astype(str)
 
         combined = []
         for df_src in [df1, df2]:
-            combined.append(df_src[["label", "_video_path", "_source", "_combined_id"]].copy())
+            combined.append(df_src[["label", "_video_path", "_source", "_participant"]].copy())
 
         result = __import__("pandas").concat(combined, ignore_index=True)
         return result
@@ -88,7 +88,7 @@ class DevemoCombinedSource(DatasetSource):
 
         df = self._build_combined_dataframe(class_split=class_split)
 
-        train_df, val_df, test_df = split_data(df, "_combined_id", seed=seed)
+        train_df, val_df, test_df = split_data(df, "_participant", seed=seed)
         label_map = {lbl: idx for idx, lbl in enumerate(sorted(df["label"].unique()))}
 
         checkpoint_dir = os.path.join(self.input_dir, ".tmp")
@@ -113,7 +113,6 @@ class DevemoCombinedSource(DatasetSource):
         train_transformer, train_random, train_manual = _parse_selection(train_frame_selection)
         test_transformer, test_random, test_manual = _parse_selection(test_frame_selection)
 
-        # Use empty string as video_dir since _video_path already contains full path
         X_train, y_train, train_debugs = process_video_temporal_encoding(
             train_df,
             "",

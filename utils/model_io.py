@@ -54,6 +54,20 @@ def _path_timestamp_folder(path):
     return os.path.basename(os.path.dirname(path))
 
 
+def _is_expected_model_path(path):
+    normalized = os.path.normpath(path).replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part and part != "."]
+    if len(parts) != 6 or parts[0].lower() != "output":
+        return False
+
+    try:
+        datetime.datetime.strptime(parts[4], "%Y%m%d-%H%M%S")
+    except ValueError:
+        return False
+
+    return True
+
+
 def find_and_load_model(model_prefix="SimpleModel", dataset_name=None, cache_version=None):
     if dataset_name and cache_version:
         print(
@@ -67,7 +81,7 @@ def find_and_load_model(model_prefix="SimpleModel", dataset_name=None, cache_ver
         print(f"Searching for models matching '{model_prefix}'...")
 
     models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
-    all_models = [path for path in models if "backup" not in path.lower()]
+    all_models = [path for path in models if _is_expected_model_path(path)]
 
     candidates = []
     for path in all_models:
