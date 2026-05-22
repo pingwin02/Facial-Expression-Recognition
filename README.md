@@ -27,7 +27,8 @@ cd Facial-Expression-Recognition
 
 ### Usage
 
-All training/evaluation logic is handled by `main.py`. Run without arguments for interactive mode (prompts for all parameters with defaults), or pass arguments directly.
+All training/evaluation logic is handled by `main.py`. Run without arguments for interactive mode (prompts for all
+parameters with defaults), or pass arguments directly.
 
 For full help and available options:
 
@@ -61,18 +62,18 @@ python main.py
 
 ### Parameters
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--model` | Model name or index | (interactive) |
-| `--input` | Dataset name or index | (interactive) |
-| `--mode` | `train`, `eval`, `both` (or 0-2) | `both` |
-| `--epochs` | Number of training epochs | 100 |
-| `--train-frame-selection` | Frame selection for training | `uniform` |
-| `--test-frame-selection` | Frame selection for testing | same as train |
-| `--num-frames` | Frames per video | 5 |
-| `--class-split` | `binary` or `all` (or 0-1) | `binary` |
-| `--loop` | Number of full run loops | 1 |
-| `--no-cache` | Disable dataset caching | off |
+| Flag                      | Description                      | Default       |
+|---------------------------|----------------------------------|---------------|
+| `--model`                 | Model name or index              | (interactive) |
+| `--input`                 | Dataset name or index            | (interactive) |
+| `--mode`                  | `train`, `eval`, `both` (or 0-2) | `both`        |
+| `--epochs`                | Number of training epochs        | 100           |
+| `--train-frame-selection` | Frame selection for training     | `uniform`     |
+| `--test-frame-selection`  | Frame selection for testing      | same as train |
+| `--num-frames`            | Frames per video                 | 5             |
+| `--class-split`           | `binary` or `all` (or 0-1)       | `binary`      |
+| `--loop`                  | Number of full run loops         | 1             |
+| `--no-cache`              | Disable dataset caching          | off           |
 
 ### Quick regression check
 
@@ -101,13 +102,13 @@ If `WANDB_API_KEY` is missing, training runs normally without wandb.
 
 Helper scripts in `misc/` for analysis and visualization:
 
-| Script | Description | Example |
-|--------|-------------|---------|
-| `average_runs.py` | Averages metrics across multiple training runs in `output/` and generates summary plots | `python misc/average_runs.py` |
-| `dataset_statistics.py` | Generates class distribution plots for devemo/devemo+ datasets | `python misc/dataset_statistics.py` |
-| `temporal_overlay_preview.py` | Renders temporal encoding preview (sampled frames + diff layers) for a video | `python misc/temporal_overlay_preview.py --video PATH` |
-| `veatic_single_film_timeline.py` | Plots arousal/valence frame-label timeline for a single VEATIC film | `python misc/veatic_single_film_timeline.py --video-id 0` |
-| `view_cache_pkl_frames.py` | Visualizes frames stored in cache `.pkl` files | `python misc/view_cache_pkl_frames.py` |
+| Script                           | Description                                                                             | Example                                                   |
+|----------------------------------|-----------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| `average_runs.py`                | Averages metrics across multiple training runs in `output/` and generates summary plots | `python misc/average_runs.py`                             |
+| `dataset_statistics.py`          | Generates class distribution plots for devemo/devemo+ datasets                          | `python misc/dataset_statistics.py`                       |
+| `temporal_overlay_preview.py`    | Renders temporal encoding preview (sampled frames + diff layers) for a video            | `python misc/temporal_overlay_preview.py --video PATH`    |
+| `veatic_single_film_timeline.py` | Plots arousal/valence frame-label timeline for a single VEATIC film                     | `python misc/veatic_single_film_timeline.py --video-id 0` |
+| `view_cache_pkl_frames.py`       | Visualizes frames stored in cache `.pkl` files                                          | `python misc/view_cache_pkl_frames.py`                    |
 
 ## Useful commands
 

@@ -1,8 +1,9 @@
 import json
-import matplotlib.pyplot as plt
-import numpy as np
 import os
 import textwrap
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def _summarize_frames_by_video(debugs):
@@ -49,16 +50,19 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
     from sklearn.metrics import confusion_matrix
     import seaborn as sns
 
-    cm = confusion_matrix(y_true, y_pred)
-
     def _wrap_label(label, width=14):
         normalized = str(label).replace("+", " + ").replace("_", " ")
         chunks = textwrap.wrap(normalized, width=width)
         return "\n".join(chunks) if chunks else str(label)
 
     class_names = "auto"
+    cm_labels = None
     if label_map:
-        class_names = [_wrap_label(k) for k, v in sorted(label_map.items(), key=lambda item: item[1])]
+        sorted_items = sorted(label_map.items(), key=lambda item: item[1])
+        class_names = [_wrap_label(k) for k, _ in sorted_items]
+        cm_labels = [v for _, v in sorted_items]
+
+    cm = confusion_matrix(y_true, y_pred, labels=cm_labels)
 
     n_classes = cm.shape[0] if hasattr(cm, "shape") else 2
     fig_w = max(10, min(24, 2.0 + 1.5 * n_classes))
@@ -92,15 +96,15 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
 
 
 def plot_metrics(
-    history,
-    output_dir,
-    model_name=None,
-    training_debugs=None,
-    validation_debugs=None,
-    dataset_name=None,
-    label_map=None,
-    cache_label=None,
-    model_summary=None,
+        history,
+        output_dir,
+        model_name=None,
+        training_debugs=None,
+        validation_debugs=None,
+        dataset_name=None,
+        label_map=None,
+        cache_label=None,
+        model_summary=None,
 ):
     train_losses = history["loss"]
     val_losses = history.get("val_loss", [])

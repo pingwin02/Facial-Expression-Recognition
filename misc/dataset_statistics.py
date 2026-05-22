@@ -5,7 +5,6 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -174,9 +173,9 @@ def main():
 
     splits = ["binary", "all"] if args.class_split == "both" else [args.class_split]
     for split in splits:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  Generating statistics for class_split = '{split}'")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
         generate_plots(split)
 
     print("\nDone.")

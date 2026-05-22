@@ -176,13 +176,13 @@ def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
 
 
 def _save_iteration_checkpoint(
-    checkpoint_dir,
-    checkpoint_prefix,
-    next_index,
-    X,
-    y,
-    debugs,
-    size_tag=None,
+        checkpoint_dir,
+        checkpoint_prefix,
+        next_index,
+        X,
+        y,
+        debugs,
+        size_tag=None,
 ):
     if not checkpoint_dir or not checkpoint_prefix:
         return None
@@ -257,15 +257,15 @@ def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix, size_tag=No
 
 
 def process_video_frames_with_frame_labels(
-    df,
-    video_dir,
-    filename_col,
-    label_map,
-    frames_per_video=100,
-    checkpoint_dir=None,
-    checkpoint_prefix=None,
-    save_checkpoint_every=1,
-    resume_from_checkpoint=True,
+        df,
+        video_dir,
+        filename_col,
+        label_map,
+        frames_per_video=100,
+        checkpoint_dir=None,
+        checkpoint_prefix=None,
+        save_checkpoint_every=1,
+        resume_from_checkpoint=True,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -400,12 +400,12 @@ def process_video_frames_with_frame_labels(
 
 
 def process_image_directory(
-    directory,
-    label_map,
-    checkpoint_dir=None,
-    checkpoint_prefix=None,
-    save_checkpoint_every=100,
-    resume_from_checkpoint=True,
+        directory,
+        label_map,
+        checkpoint_dir=None,
+        checkpoint_prefix=None,
+        save_checkpoint_every=100,
+        resume_from_checkpoint=True,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -533,7 +533,8 @@ def _transformer_select_frames(cap, candidate_indices, num_select):
 
 
 def _sample_faces_from_video(
-    video_path, detector_pack, use_transformer_selection=False, use_random_selection=False, use_manual_selection=False
+        video_path, detector_pack, use_transformer_selection=False, use_random_selection=False,
+        use_manual_selection=False
 ):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -691,17 +692,17 @@ def temporal_encoding_preview_from_video(video_path):
 
 
 def process_video_temporal_encoding(
-    df,
-    video_dir,
-    filename_col,
-    label_map,
-    checkpoint_dir=None,
-    checkpoint_prefix=None,
-    save_checkpoint_every=1,
-    resume_from_checkpoint=True,
-    use_transformer_selection=False,
-    use_random_selection=False,
-    use_manual_selection=False,
+        df,
+        video_dir,
+        filename_col,
+        label_map,
+        checkpoint_dir=None,
+        checkpoint_prefix=None,
+        save_checkpoint_every=1,
+        resume_from_checkpoint=True,
+        use_transformer_selection=False,
+        use_random_selection=False,
+        use_manual_selection=False,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -711,7 +712,7 @@ def process_video_temporal_encoding(
     detector_pack = get_dlib_detector_predictor()
 
     for row_idx, (_, row) in enumerate(
-        tqdm(df.iterrows(), desc="Processing videos (temporal encoding)", total=len(df), unit="video")
+            tqdm(df.iterrows(), desc="Processing videos (temporal encoding)", total=len(df), unit="video")
     ):
         if row_idx < start_index:
             continue

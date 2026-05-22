@@ -1,6 +1,7 @@
 import json
-import numpy as np
 import os
+
+import numpy as np
 from sklearn.metrics import (
     balanced_accuracy_score,
     precision_recall_fscore_support,
@@ -144,7 +145,7 @@ def _expand_indices_per_video(val_debugs, base_video_indices, frames_per_video=1
         selected_for_video = sorted(
             selected_for_video,
             key=lambda idx: (
-                int(val_debugs[idx].get("frame_idx", 10**9)) if isinstance(val_debugs[idx], dict) else 10**9,
+                int(val_debugs[idx].get("frame_idx", 10 ** 9)) if isinstance(val_debugs[idx], dict) else 10 ** 9,
                 idx,
             ),
         )
@@ -178,13 +179,13 @@ def _read_video_frame_total(dataset_path, video_name):
 
 def _video_sort_key(video_name):
     if not video_name:
-        return (1, "", 10**9)
+        return (1, "", 10 ** 9)
 
     base = os.path.splitext(os.path.basename(str(video_name)))[0]
     try:
         return (0, "", int(base))
     except ValueError:
-        return (1, base.lower(), 10**9)
+        return (1, base.lower(), 10 ** 9)
 
 
 def _collect_metrics_dict(y_true, y_pred, label_map=None):
@@ -265,16 +266,16 @@ def _evaluate_video_level(predictions, y_labels, debug_infos, is_binary):
 
 
 def evaluate_model_on_data(
-    loaded_model,
-    val_tuple,
-    output_dir,
-    model_name="simple_sample_grid",
-    max_samples=9,
-    label_map=None,
-    dataset_name=None,
-    dataset_path=None,
-    train_tuple=None,
-    cache_label=None,
+        loaded_model,
+        val_tuple,
+        output_dir,
+        model_name="simple_sample_grid",
+        max_samples=9,
+        label_map=None,
+        dataset_name=None,
+        dataset_path=None,
+        train_tuple=None,
+        cache_label=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -390,9 +391,9 @@ def evaluate_model_on_data(
                     else None
                 ),
                 (
-                    int(val_debugs[idx].get("frame_idx", 10**9))
+                    int(val_debugs[idx].get("frame_idx", 10 ** 9))
                     if idx < len(val_debugs) and isinstance(val_debugs[idx], dict)
-                    else 10**9
+                    else 10 ** 9
                 ),
                 int(idx),
             ),

@@ -19,7 +19,6 @@ except Exception:
     Image = None
     ImageTk = None
 
-
 _SELECTOR_STATE = {"skip_remaining_videos": False}
 
 
@@ -62,7 +61,7 @@ def _fit_frame_for_tile(frame_rgb, tile_width=320, tile_height=180):
     canvas = np.zeros((tile_height, tile_width, 3), dtype=np.uint8)
     offset_x = (tile_width - resized_w) // 2
     offset_y = (tile_height - resized_h) // 2
-    canvas[offset_y : offset_y + resized_h, offset_x : offset_x + resized_w] = resized
+    canvas[offset_y: offset_y + resized_h, offset_x: offset_x + resized_w] = resized
     return canvas
 
 
@@ -107,7 +106,7 @@ def _build_headless_preview(video_path, num_frames):
         manifest = []
 
         for page_start in range(0, len(candidate_indices), page_size):
-            page_candidates = candidate_indices[page_start : page_start + page_size]
+            page_candidates = candidate_indices[page_start: page_start + page_size]
             canvas = np.zeros((rows * tile_height, columns * tile_width, 3), dtype=np.uint8)
 
             for local_idx, frame_idx in enumerate(page_candidates):
@@ -322,7 +321,7 @@ class ManualFrameSelectorGUI:
 
         self.frame_label.config(
             text=f"Frame: {self.current_frame_idx}/{self.total_frames - 1} | "
-            f"Selected: {len(self.selected_indices)}/{self.num_frames_to_select}"
+                 f"Selected: {len(self.selected_indices)}/{self.num_frames_to_select}"
         )
         self.slider.set(self.current_frame_idx)
         self._update_selected_list()

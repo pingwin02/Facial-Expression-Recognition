@@ -1,7 +1,6 @@
 import csv
 import html as html_lib
 import json
-import numpy as np
 import os
 import re
 import shutil
@@ -11,6 +10,8 @@ import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 from http.cookiejar import CookieJar
+
+import numpy as np
 
 
 def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="label"):
@@ -103,7 +104,7 @@ def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="la
                 ident
                 for ident in train_ids
                 if id_to_counts[ident][label_idx] > 0
-                and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
+                   and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
             ]
             if candidates and len(holdout_ids) < max_holdout_ids:
                 chosen = min(candidates, key=lambda ident: balance_error(current_holdout_counts + id_to_counts[ident]))
@@ -358,14 +359,14 @@ def label_distribution_from_image_folders(root_dir):
 
 
 def write_dataset_details_json(
-    dataset_name,
-    dataset_path,
-    download_url,
-    archive_name,
-    dataset_zip,
-    required_marker,
-    labels_distribution,
-    participants=None,
+        dataset_name,
+        dataset_path,
+        download_url,
+        archive_name,
+        dataset_zip,
+        required_marker,
+        labels_distribution,
+        participants=None,
 ):
     details_path = os.path.join(dataset_path, "!dataset_details.json")
     details = {

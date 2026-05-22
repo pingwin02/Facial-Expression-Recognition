@@ -2,11 +2,11 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers, applications
 
+from models._base import BaseModel
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
 from utils.wandb_utils import init_wandb_run, finish_wandb_run
-from models._base import BaseModel
 
 
 class TransferModel(BaseModel):
@@ -138,19 +138,19 @@ class TransferModel(BaseModel):
 
     @classmethod
     def train(
-        cls,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-        output_dir,
-        model_filename,
-        epochs,
-        label_map,
-        train_debugs=None,
-        val_debugs=None,
-        dataset_name=None,
-        cache_label=None,
+            cls,
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            output_dir,
+            model_filename,
+            epochs,
+            label_map,
+            train_debugs=None,
+            val_debugs=None,
+            dataset_name=None,
+            cache_label=None,
     ):
         wandb_run = None
         wandb_callback = None

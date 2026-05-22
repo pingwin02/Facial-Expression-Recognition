@@ -1,10 +1,11 @@
 import json
 import os
 import re
+
 import pandas as pd
 
-from dataset.processors import process_video_temporal_encoding
 from dataset.processors import cleanup_iteration_checkpoints
+from dataset.processors import process_video_temporal_encoding
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import build_distribution_result, split_data
 
@@ -127,7 +128,8 @@ class DevemoSource(DatasetSource):
         return re.sub(r"[^a-zA-Z0-9_+-]", "_", raw)
 
     def load(
-        self, seed=42, train_frame_selection="uniform", test_frame_selection=None, num_frames=5, class_split="binary"
+            self, seed=42, train_frame_selection="uniform", test_frame_selection=None, num_frames=5,
+            class_split="binary"
     ):
         if test_frame_selection is None:
             test_frame_selection = train_frame_selection

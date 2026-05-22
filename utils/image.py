@@ -1,11 +1,12 @@
 import bz2
+import os
+import urllib.request
+
 import cv2
 import dlib
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
 import numpy as np
-import os
-import urllib.request
+from matplotlib.lines import Line2D
 
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
@@ -78,19 +79,19 @@ def detect_and_crop_face(frame, detector, predictor, faces=None):
 
 
 def save_sample_frames(
-    frames,
-    preds,
-    labels,
-    debugs,
-    output_dir,
-    model_name,
-    dataset_name,
-    accuracy,
-    filename,
-    highlight_correctness_bg=False,
-    cols=5,
-    group_size=None,
-    show_group_separator=False,
+        frames,
+        preds,
+        labels,
+        debugs,
+        output_dir,
+        model_name,
+        dataset_name,
+        accuracy,
+        filename,
+        highlight_correctness_bg=False,
+        cols=5,
+        group_size=None,
+        show_group_separator=False,
 ):
     def _pretty_class_name(value):
         return str(value).replace("_", " ")

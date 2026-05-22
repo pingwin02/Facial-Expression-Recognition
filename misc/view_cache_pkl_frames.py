@@ -1,9 +1,9 @@
 import os
 import pickle
+import textwrap
 
 import matplotlib.pyplot as plt
 import numpy as np
-import textwrap
 
 DEFAULT_CACHE_DIR = "../input/.cache"
 DEFAULT_OUTPUT_DIR = "../output/pkl_previews"
@@ -322,16 +322,16 @@ def _build_view_indices(total, start_index=0, max_frames=0):
 
 
 def save_frames_preview_image(
-    frames,
-    debugs,
-    label_texts,
-    title_prefix,
-    output_path,
-    start_index=0,
-    max_frames=0,
-    save_count=64,
-    cols=8,
-    overlay_green_points=False,
+        frames,
+        debugs,
+        label_texts,
+        title_prefix,
+        output_path,
+        start_index=0,
+        max_frames=0,
+        save_count=64,
+        cols=8,
+        overlay_green_points=False,
 ):
     total = int(len(frames))
     view_indices = _build_view_indices(total, start_index=start_index, max_frames=max_frames)
@@ -383,7 +383,7 @@ def save_frames_preview_image(
 
 
 def show_frames_interactive(
-    frames, debugs, label_texts, title_prefix, start_index=0, max_frames=0, overlay_green_points=False
+        frames, debugs, label_texts, title_prefix, start_index=0, max_frames=0, overlay_green_points=False
 ):
     total = int(len(frames))
     view_indices = _build_view_indices(total, start_index=start_index, max_frames=max_frames)

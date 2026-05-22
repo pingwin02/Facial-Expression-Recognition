@@ -1,5 +1,6 @@
-import numpy as np
 import os
+
+import numpy as np
 
 from dataset.processors import cleanup_iteration_checkpoints, process_image_directory
 from dataset.sources.base_source import DatasetSource

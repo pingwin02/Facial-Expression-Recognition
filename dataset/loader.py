@@ -1,6 +1,7 @@
-import numpy as np
 import os
 import pickle
+
+import numpy as np
 
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
@@ -14,11 +15,11 @@ def _normalize_cache_token(value):
 
 
 def build_cache_version(
-    input_flag="devemo",
-    train_frame_selection="uniform",
-    test_frame_selection=None,
-    num_frames=5,
-    class_split="binary",
+        input_flag="devemo",
+        train_frame_selection="uniform",
+        test_frame_selection=None,
+        num_frames=5,
+        class_split="binary",
 ):
     if test_frame_selection is None:
         test_frame_selection = train_frame_selection
@@ -37,16 +38,16 @@ def build_cache_version(
 
 
 def load_data(
-    input_dir,
-    input_flag="devemo",
-    seed=42,
-    cache_dir="input/.cache",
-    no_cache=False,
-    train_frame_selection="uniform",
-    test_frame_selection=None,
-    num_frames=5,
-    class_split="binary",
-    cache_version=None,
+        input_dir,
+        input_flag="devemo",
+        seed=42,
+        cache_dir="input/.cache",
+        no_cache=False,
+        train_frame_selection="uniform",
+        test_frame_selection=None,
+        num_frames=5,
+        class_split="binary",
+        cache_version=None,
 ):
     if test_frame_selection is None:
         test_frame_selection = train_frame_selection

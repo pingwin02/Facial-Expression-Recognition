@@ -5,8 +5,6 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 from dataset.downloader import ensure_dataset
 from dataset.loader import build_cache_version, load_data
 
-import sys
-
 from utils.cli import parse_args
 from utils.model_io import load_model_class, prepare_output_directory, cleanup_empty_dirs
 
@@ -22,20 +20,20 @@ def run_once(args, mode):
 
     INPUT_DIR = "input"
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"  mode: {mode}")
     for arg in (
-        "model",
-        "input",
-        "epochs",
-        "train_frame_selection",
-        "test_frame_selection",
-        "num_frames",
-        "class_split",
+            "model",
+            "input",
+            "epochs",
+            "train_frame_selection",
+            "test_frame_selection",
+            "num_frames",
+            "class_split",
     ):
         print(f"  {arg}: {getattr(args, arg)}")
     print(f"  cache_version: {cache_version}")
-    print(f"{'='*50}\n")
+    print(f"{'=' * 50}\n")
 
     ensure_dataset(INPUT_DIR, dataset_name=args.input)
 

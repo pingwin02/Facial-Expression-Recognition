@@ -1,7 +1,8 @@
+import os
+
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import tensorflow as tf
 
 
@@ -134,17 +135,17 @@ def _overlay_heatmap(image, heatmap, alpha=0.4):
 
 
 def save_gradcam_grid(
-    model,
-    frames,
-    preds,
-    labels,
-    debugs,
-    output_dir,
-    model_name,
-    dataset_name,
-    accuracy,
-    filename,
-    cols=3,
+        model,
+        frames,
+        preds,
+        labels,
+        debugs,
+        output_dir,
+        model_name,
+        dataset_name,
+        accuracy,
+        filename,
+        cols=3,
 ):
     def _pretty_class_name(value):
         return str(value).replace("_", " ")

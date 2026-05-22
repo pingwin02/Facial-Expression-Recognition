@@ -241,7 +241,7 @@ def plot_all_runs_curves(curves: dict, path: Path, metric: str, title: str, ylab
     eps = np.arange(1, c["epochs"] + 1)
     raw_runs = np.array(c["raw"])
     for i, run_data in enumerate(raw_runs):
-        ax.plot(eps, run_data, alpha=0.5, label=f"Run {i+1}")
+        ax.plot(eps, run_data, alpha=0.5, label=f"Run {i + 1}")
     ax.plot(eps, np.array(c["mean"]), color="black", linewidth=2.5, label="Mean")
     ax.set(title=title, xlabel="Epoch", ylabel=ylabel)
     ax.legend(bbox_to_anchor=(1.05, 1), loc="upper left")

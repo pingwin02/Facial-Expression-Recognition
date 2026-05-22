@@ -1,9 +1,10 @@
 import csv
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import matplotlib.patches as mpatches
-import numpy as np
 import os
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
 
 
 def read_veatic_sequence(csv_path):
@@ -108,14 +109,14 @@ def plot_veatic_frame_label_timeline(arousal_seq, valence_seq, video_name, outpu
 
 
 def plot_veatic_timeline(
-    arousal_seq,
-    valence_seq,
-    video_name,
-    selected_frames=None,
-    selected_frame_correct=None,
-    showcase_frames=None,
-    output_path=None,
-    threshold=0.0,
+        arousal_seq,
+        valence_seq,
+        video_name,
+        selected_frames=None,
+        selected_frame_correct=None,
+        showcase_frames=None,
+        output_path=None,
+        threshold=0.0,
 ):
     fig, ax = plt.subplots(figsize=(18, 6))
 
@@ -369,16 +370,16 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
 
 
 def create_veatic_visualizations(
-    val_data,
-    predictions,
-    true_labels,
-    label_map,
-    output_dir,
-    dataset_path,
-    max_samples=10,
-    model=None,
-    selected_videos=None,
-    selected_sample_indices=None,
+        val_data,
+        predictions,
+        true_labels,
+        label_map,
+        output_dir,
+        dataset_path,
+        max_samples=10,
+        model=None,
+        selected_videos=None,
+        selected_sample_indices=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
 

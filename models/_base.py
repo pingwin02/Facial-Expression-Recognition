@@ -18,19 +18,19 @@ class BaseModel(ABC):
     @classmethod
     @abstractmethod
     def train(
-        cls,
-        X_train,
-        y_train,
-        X_val,
-        y_val,
-        output_dir,
-        model_filename,
-        epochs,
-        label_map,
-        train_debugs=None,
-        val_debugs=None,
-        dataset_name=None,
-        cache_label=None,
+            cls,
+            X_train,
+            y_train,
+            X_val,
+            y_val,
+            output_dir,
+            model_filename,
+            epochs,
+            label_map,
+            train_debugs=None,
+            val_debugs=None,
+            dataset_name=None,
+            cache_label=None,
     ):
         pass
 

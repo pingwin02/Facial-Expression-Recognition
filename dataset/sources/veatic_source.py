@@ -1,8 +1,9 @@
 import csv
-import numpy as np
 import os
-import pandas as pd
 from collections import Counter
+
+import numpy as np
+import pandas as pd
 
 from dataset.processors import cleanup_iteration_checkpoints, process_video_frames_with_frame_labels
 from dataset.sources.base_source import DatasetSource

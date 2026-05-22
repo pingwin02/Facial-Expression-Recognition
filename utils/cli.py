@@ -44,7 +44,7 @@ def _prompt_choice(label, options, default_index=0):
                 return options[idx]
         if raw in options:
             return raw
-        print(f"Invalid selection. Enter 0-{len(options)-1} or a valid name.")
+        print(f"Invalid selection. Enter 0-{len(options) - 1} or a valid name.")
 
 
 def _prompt_int(label, default):
@@ -65,7 +65,7 @@ def _resolve_arg(value, options, arg_name):
         idx = int(value)
         if 0 <= idx < len(options):
             return options[idx]
-        raise argparse.ArgumentTypeError(f"--{arg_name}: index {idx} out of range (0-{len(options)-1})")
+        raise argparse.ArgumentTypeError(f"--{arg_name}: index {idx} out of range (0-{len(options) - 1})")
     if value in options:
         return value
     raise argparse.ArgumentTypeError(f"--{arg_name}: '{value}' not in {options}")

@@ -87,9 +87,9 @@ def find_and_load_model(model_prefix="SimpleModel", dataset_name=None, cache_ver
     for path in all_models:
         normalized_path = path.lower()
         if (
-            model_prefix.lower() in normalized_path
-            and _path_has_dataset_segment(path, dataset_name)
-            and _path_has_cache_segment(path, cache_version)
+                model_prefix.lower() in normalized_path
+                and _path_has_dataset_segment(path, dataset_name)
+                and _path_has_cache_segment(path, cache_version)
         ):
             candidates.append(path)
 
