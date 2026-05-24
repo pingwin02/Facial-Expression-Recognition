@@ -48,7 +48,13 @@ else
 fi
 
 if [[ ${DETACHED} -eq 1 ]]; then
-    nohup "${SELF_SCRIPT}" $([[ ${DEBUG} -eq 1 ]] && printf '%s' '--debug') &> "${LOG_FILE}" &
+    DETACHED_CMD=("${SELF_SCRIPT}")
+    if [[ ${DEBUG} -eq 1 ]]; then
+        DETACHED_CMD+=(--debug)
+    fi
+
+    nohup setsid "${DETACHED_CMD[@]}" &> "${LOG_FILE}" &
+
     echo $! > "${PID_FILE}"
     echo "Started run_tests.sh in background. PID saved to ${PID_FILE}, logs: ${LOG_FILE}"
     exit 0
@@ -68,9 +74,9 @@ MODELS=("TransferModel" "ResNetModel")
 INPUTS=("devemo_combined")
 CLASSES=("binary" "all")
 
-for model in "${MODELS[@]}"; do
+for cls in "${CLASSES[@]}"; do
     for input in "${INPUTS[@]}"; do
-        for cls in "${CLASSES[@]}"; do
+        for model in "${MODELS[@]}"; do
             echo ""
             echo "--- Model=$model Input=$input Class=$cls Epochs=$EPOCHS Loops=$LOOPS ---"
             python main.py --model "$model" --input "$input" --mode both --epochs "$EPOCHS" \

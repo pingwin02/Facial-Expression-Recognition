@@ -139,6 +139,7 @@ Helper scripts in `misc/` for analysis and visualization:
   ```
 - **Check if process or its subprocesses are running**:
   ```bash
+  pgrep -g $(cat out.pid) -a
   ps -ef | grep $(cat out.pid)
   ```
 - **Check GPU & RAM usage**:
