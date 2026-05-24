@@ -102,6 +102,58 @@ def _select_correct_video_indices(val_debugs, y_true, y_pred, max_samples):
     return selected
 
 
+def _debug_identity_key(debug):
+    if not isinstance(debug, dict):
+        return None
+
+    participant = debug.get("participant")
+    if participant is not None and str(participant).strip() != "":
+        return ("participant", str(participant))
+
+    video_name = debug.get("video")
+    if video_name:
+        return ("video", str(video_name))
+
+    return None
+
+
+def _select_unique_subject_indices(val_debugs, max_samples, y_true=None, y_pred=None):
+    if not val_debugs:
+        return []
+
+    selected = []
+    seen = set()
+
+    def _collect(require_correct):
+        for idx, debug in enumerate(val_debugs):
+            if not isinstance(debug, dict):
+                continue
+            if require_correct:
+                if y_true is None or y_pred is None:
+                    continue
+                if idx >= len(y_true) or idx >= len(y_pred):
+                    continue
+                if int(y_true[idx]) != int(y_pred[idx]):
+                    continue
+
+            identity = _debug_identity_key(debug)
+            if identity is None or identity in seen:
+                continue
+
+            selected.append(idx)
+            seen.add(identity)
+            if len(selected) >= max_samples:
+                return True
+
+        return False
+
+    if _collect(require_correct=True):
+        return selected
+
+    _collect(require_correct=False)
+    return selected
+
+
 def _build_video_to_indices(debugs):
     groups = {}
     if not debugs:
@@ -399,7 +451,20 @@ def evaluate_model_on_data(
             ),
         )
     else:
-        selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False).tolist()
+        target_count = min(max_samples, len(X_val))
+        selected_indices = _select_unique_subject_indices(
+            val_debugs,
+            target_count,
+            y_true=y_val_processed,
+            y_pred=all_preds_labels,
+        )
+
+        if len(selected_indices) < target_count:
+            remaining_indices = [idx for idx in range(len(X_val)) if idx not in set(selected_indices)]
+            if remaining_indices:
+                rng = np.random.default_rng()
+                rng.shuffle(remaining_indices)
+                selected_indices.extend(remaining_indices[: target_count - len(selected_indices)])
 
     selected_indices = [int(idx) for idx in selected_indices]
 
@@ -422,7 +487,7 @@ def evaluate_model_on_data(
         debug = {"frame_index": int(idx), "predicted_label": int(preds_sample[i]), "true_label": int(labels_sample[i])}
 
         if debug_info and isinstance(debug_info, dict):
-            debug.update({k: debug_info.get(k) for k in ["video", "frame_idx"] if k in debug_info})
+            debug.update({k: debug_info.get(k) for k in ["video", "frame_idx", "participant"] if k in debug_info})
 
             video_name = debug.get("video")
             if video_name:

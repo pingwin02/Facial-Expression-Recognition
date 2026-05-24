@@ -96,6 +96,14 @@ def save_sample_frames(
     def _pretty_class_name(value):
         return str(value).replace("_", " ")
 
+    def _format_short_field(label, value, max_len=20):
+        if value is None:
+            return None
+        text = str(value)
+        if len(text) > max_len:
+            text = text[: max_len - 3] + "..."
+        return f"{label}: {text}"
+
     class_map = {}
     for debug in debugs:
         if debug and "class_map" in debug and isinstance(debug["class_map"], dict):
@@ -199,7 +207,7 @@ def save_sample_frames(
             color=top_caption_color,
             bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.9),
         )
-        if debug and isinstance(debug, dict) and debug.get("video"):
+        if debug and isinstance(debug, dict):
             frame_idx = debug.get("frame_idx")
             frame_total = debug.get("frame_total")
             frame_part = None
@@ -208,10 +216,16 @@ def save_sample_frames(
             elif frame_idx is not None:
                 frame_part = f"frame: {int(frame_idx)}"
 
-            video_display = debug["video"]
-            if len(video_display) > 20:
-                video_display = video_display[:17] + "..."
-            text_lines = [f"video: {video_display}", bottom_caption]
+            text_lines = []
+            participant_part = _format_short_field("participant", debug.get("participant"))
+            if participant_part:
+                text_lines.append(participant_part)
+
+            video_part = _format_short_field("video", debug.get("video"))
+            if video_part:
+                text_lines.append(video_part)
+
+            text_lines.append(bottom_caption)
             if frame_part:
                 text_lines.append(frame_part)
 

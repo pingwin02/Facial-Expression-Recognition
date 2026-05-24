@@ -145,7 +145,7 @@ Examples:
         args.mode = "both"
 
     if args.epochs is None:
-        if interactive:
+        if interactive and args.mode in ("train", "both"):
             args.epochs = _prompt_int("Number of epochs", 100)
         else:
             args.epochs = 100

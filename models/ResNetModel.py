@@ -25,7 +25,7 @@ class ResNetModel(BaseModel):
         )
 
         x = layers.TimeDistributed(data_augmentation, name="video_aug")(inputs)
-        x = layers.TimeDistributed(layers.Rescaling(scale=1.0 / 127.5, offset=-1.0))(x)
+        x = layers.TimeDistributed(layers.Rescaling(scale=2.0, offset=-1.0))(x)
 
         self.base_model = applications.ResNet50(input_shape=(224, 224, 3), include_top=False, weights="imagenet")
 

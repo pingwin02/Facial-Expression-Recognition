@@ -83,6 +83,19 @@ Run the bundled smoke-test script:
 ./run_tests.sh
 ```
 
+Useful variants:
+
+```bash
+# run a short debug pass (1 loop, 10 epochs)
+./run_tests.sh --debug
+
+# run in background and save PID/logs in the project root
+./run_tests.sh --detached
+
+# combine both
+./run_tests.sh --detached --debug
+```
+
 ### Optional: Weights & Biases (wandb) logging
 
 Training supports optional wandb logging. Put your API key in `.env` in the project root:
@@ -116,13 +129,17 @@ Helper scripts in `misc/` for analysis and visualization:
   ```bash
   nohup ./run_tests.sh &> out.log & echo $! > out.pid
   ```
+- **Use built-in detached mode**:
+  ```bash
+  ./run_tests.sh --detached
+  ```
 - **Kill script and all its Python subprocesses**:
   ```bash
   kill -9 -$(cat out.pid)
   ```
 - **Check if process or its subprocesses are running**:
   ```bash
-  pgrep -g $(cat out.pid) -a
+  ps -ef | grep $(cat out.pid)
   ```
 - **Check GPU & RAM usage**:
   ```bash

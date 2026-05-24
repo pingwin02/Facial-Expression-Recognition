@@ -56,16 +56,6 @@ def compute_gradcam_heatmap(model, input_tensor, class_idx=None):
         print("[GradCAM] Warning: No conv layer found in backbone")
         return None
 
-    dense_layer = None
-    for layer in reversed(model.layers):
-        if isinstance(layer, tf.keras.layers.Dense):
-            dense_layer = layer
-            break
-
-    if dense_layer is None:
-        print("[GradCAM] Warning: No Dense layer found in full model")
-        return None
-
     if input_tensor.ndim == 4:
         input_tensor = np.expand_dims(input_tensor, axis=0)
 
@@ -82,11 +72,35 @@ def compute_gradcam_heatmap(model, input_tensor, class_idx=None):
         else:
             class_idx = int(tf.argmax(preds[0]).numpy())
 
+    rescaling_layer = None
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.TimeDistributed):
+            inner = layer.layer
+            if isinstance(inner, tf.keras.layers.Rescaling):
+                rescaling_layer = inner
+                break
+
+    bn_layer = None
+    dense_layer = None
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.BatchNormalization):
+            bn_layer = layer
+        if isinstance(layer, tf.keras.layers.Dense):
+            dense_layer = layer
+
+    if dense_layer is None:
+        print("[GradCAM] Warning: No Dense layer found in full model")
+        return None
+
     target_layer = backbone.get_layer(target_layer_name)
     grad_model = tf.keras.Model(inputs=backbone.input, outputs=[target_layer.output, backbone.output])
 
     with tf.GradientTape() as tape:
-        conv_outputs, backbone_features = grad_model(center_frame, training=False)
+        preprocessed_frame = center_frame
+        if rescaling_layer is not None:
+            preprocessed_frame = rescaling_layer(preprocessed_frame)
+
+        conv_outputs, backbone_features = grad_model(preprocessed_frame, training=False)
         tape.watch(conv_outputs)
 
         if len(backbone_features.shape) == 4:
@@ -94,8 +108,14 @@ def compute_gradcam_heatmap(model, input_tensor, class_idx=None):
         else:
             pooled = backbone_features
 
+        if bn_layer is not None:
+            pooled = bn_layer(pooled, training=False)
+
         class_logits = dense_layer(pooled)
-        class_score = class_logits[0, class_idx]
+        if class_logits.shape[-1] == 1:
+            class_score = class_logits[0, 0] if class_idx == 1 else (1.0 - class_logits[0, 0])
+        else:
+            class_score = class_logits[0, class_idx]
 
     grads = tape.gradient(class_score, conv_outputs)
 
@@ -149,6 +169,14 @@ def save_gradcam_grid(
 ):
     def _pretty_class_name(value):
         return str(value).replace("_", " ")
+
+    def _format_short_field(label, value, max_len=20):
+        if value is None:
+            return None
+        text = str(value)
+        if len(text) > max_len:
+            text = text[: max_len - 3] + "..."
+        return f"{label}: {text}"
 
     class_map = {}
     for debug in debugs:
@@ -235,11 +263,18 @@ def save_gradcam_grid(
 
         debug = debugs[idx] if idx < len(debugs) else None
         bottom_caption = f"predicted: {pred_name}"
-        if debug and isinstance(debug, dict) and debug.get("video"):
-            video_display = debug["video"]
-            if len(video_display) > 20:
-                video_display = video_display[:17] + "..."
-            bottom_caption = f"video: {video_display}\n{bottom_caption}"
+        if debug and isinstance(debug, dict):
+            text_lines = []
+            participant_part = _format_short_field("participant", debug.get("participant"))
+            if participant_part:
+                text_lines.append(participant_part)
+
+            video_part = _format_short_field("video", debug.get("video"))
+            if video_part:
+                text_lines.append(video_part)
+
+            text_lines.append(bottom_caption)
+            bottom_caption = "\n".join(text_lines)
 
         ax.text(
             0.5,
