@@ -6,7 +6,7 @@ import numpy as np
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-BASE_CACHE_VERSION = "v24"
+BASE_CACHE_VERSION = "v25"
 CACHE_VERSION = BASE_CACHE_VERSION
 
 

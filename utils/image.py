@@ -12,8 +12,36 @@ IMG_HEIGHT = 224
 IMG_WIDTH = 224
 CHANNELS = 1
 
+ALIGN_EYE_X_LEFT = 0.32
+ALIGN_EYE_X_RIGHT = 0.68
+ALIGN_EYE_Y = 0.35
+ALIGN_MOUTH_X = 0.50
+ALIGN_MOUTH_Y = 0.75
+
+MEAN_FACE_5PT_BASE = np.float32(
+    [
+        [38.2946, 51.6963],
+        [73.5318, 51.5014],
+        [56.0252, 71.7366],
+        [41.5493, 92.3655],
+        [70.7299, 92.2041],
+    ]
+)
+MEAN_FACE_5PT_SIZE = 112.0
+
+DETECTOR_UPSAMPLE_PRIMARY = 1
+DETECTOR_UPSAMPLE_FALLBACK = 2
+
+HAAR_SCALE_FACTOR = 1.1
+HAAR_MIN_NEIGHBORS = 5
+HAAR_MIN_SIZE_RATIO = 0.2
+HAAR_MIN_SIZE_PX = 24
+
+CENTER_CROP_RATIO = 0.8
+
 _detector = None
 _predictor = None
+_haar_detector = None
 
 
 def get_dlib_detector_predictor():
@@ -38,10 +66,161 @@ def get_dlib_detector_predictor():
     return _detector, _predictor
 
 
-def detect_and_crop_face(frame, detector, predictor, faces=None):
+def _get_haar_detector():
+    global _haar_detector
+    if _haar_detector is None:
+        cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+        _haar_detector = cv2.CascadeClassifier(cascade_path)
+    return _haar_detector
+
+
+def _detect_faces(gray, detector):
+    faces = detector(gray, DETECTOR_UPSAMPLE_PRIMARY)
+    if len(faces) == 0 and DETECTOR_UPSAMPLE_FALLBACK > DETECTOR_UPSAMPLE_PRIMARY:
+        faces = detector(gray, DETECTOR_UPSAMPLE_FALLBACK)
+    if len(faces) == 0:
+        faces = _detect_faces_haar(gray)
+    return faces
+
+
+def _detect_faces_haar(gray):
+    haar = _get_haar_detector()
+    if haar is None or haar.empty():
+        return []
+
+    min_side = int(min(gray.shape[:2]) * HAAR_MIN_SIZE_RATIO)
+    min_side = max(HAAR_MIN_SIZE_PX, min_side)
+    boxes = haar.detectMultiScale(
+        gray,
+        scaleFactor=HAAR_SCALE_FACTOR,
+        minNeighbors=HAAR_MIN_NEIGHBORS,
+        minSize=(min_side, min_side),
+    )
+    return [dlib.rectangle(int(x), int(y), int(x + w), int(y + h)) for (x, y, w, h) in boxes]
+
+
+def _center_crop(frame, ratio=CENTER_CROP_RATIO):
+    h, w = frame.shape[:2]
+    side = int(min(h, w) * float(ratio))
+    if side < 2:
+        return frame, None
+    x1 = max(0, (w - side) // 2)
+    y1 = max(0, (h - side) // 2)
+    x2 = min(w, x1 + side)
+    y2 = min(h, y1 + side)
+    if x2 <= x1 or y2 <= y1:
+        return frame, None
+    return frame[y1:y2, x1:x2], (x1, y1, x2, y2)
+
+
+def _landmark_points_3(landmarks):
+    if landmarks is None:
+        return None
+    lm = np.asarray(landmarks, dtype=np.float32)
+    if lm.ndim != 2 or lm.shape[1] != 2 or lm.shape[0] < 60:
+        return None
+    left_eye = lm[36:42].mean(axis=0)
+    right_eye = lm[42:48].mean(axis=0)
+    mouth = lm[48:60].mean(axis=0)
+    return np.stack([left_eye, right_eye, mouth], axis=0)
+
+
+def _landmark_points_5(landmarks):
+    if landmarks is None:
+        return None
+    lm = np.asarray(landmarks, dtype=np.float32)
+    if lm.ndim != 2 or lm.shape[1] != 2 or lm.shape[0] < 55:
+        return None
+    left_eye = lm[36:42].mean(axis=0)
+    right_eye = lm[42:48].mean(axis=0)
+    nose = lm[30]
+    mouth_left = lm[48]
+    mouth_right = lm[54]
+    return np.stack([left_eye, right_eye, nose, mouth_left, mouth_right], axis=0)
+
+
+def _alignment_targets_3():
+    return np.float32(
+        [
+            [ALIGN_EYE_X_LEFT * IMG_WIDTH, ALIGN_EYE_Y * IMG_HEIGHT],
+            [ALIGN_EYE_X_RIGHT * IMG_WIDTH, ALIGN_EYE_Y * IMG_HEIGHT],
+            [ALIGN_MOUTH_X * IMG_WIDTH, ALIGN_MOUTH_Y * IMG_HEIGHT],
+        ]
+    )
+
+
+def _alignment_targets_5():
+    scale = np.array([IMG_WIDTH / MEAN_FACE_5PT_SIZE, IMG_HEIGHT / MEAN_FACE_5PT_SIZE], dtype=np.float32)
+    return MEAN_FACE_5PT_BASE * scale
+
+
+def _compute_alignment_transform(landmarks):
+    src = _landmark_points_5(landmarks)
+    if src is not None and np.isfinite(src).all():
+        if src[0][0] < src[1][0] and src[3][0] < src[4][0]:
+            eye_dist = float(np.linalg.norm(src[1] - src[0]))
+            if eye_dist >= 5.0:
+                eye_y = float((src[0][1] + src[1][1]) * 0.5)
+                nose_y = float(src[2][1])
+                mouth_y = float((src[3][1] + src[4][1]) * 0.5)
+                if eye_y < nose_y < mouth_y:
+                    dst = _alignment_targets_5()
+                    matrix, _ = cv2.estimateAffinePartial2D(src, dst, method=cv2.LMEDS)
+                    if matrix is not None and np.isfinite(matrix).all():
+                        return matrix.astype(np.float32)
+
+    src3 = _landmark_points_3(landmarks)
+    if src3 is None or not np.isfinite(src3).all():
+        return None
+    if src3[0][0] >= src3[1][0]:
+        return None
+    eye_dist = float(np.linalg.norm(src3[1] - src3[0]))
+    if eye_dist < 5.0:
+        return None
+    dst3 = _alignment_targets_3()
+    matrix = cv2.getAffineTransform(src3, dst3)
+    if matrix is None or not np.isfinite(matrix).all():
+        return None
+    return matrix.astype(np.float32)
+
+
+def _apply_affine(points, matrix):
+    pts = np.asarray(points, dtype=np.float32)
+    return (pts @ matrix[:, :2].T) + matrix[:, 2]
+
+
+def _crop_box_from_landmarks(landmarks, frame_shape, margin_x=0.25, margin_y=0.35):
+    if landmarks is None:
+        return None
+    lm = np.asarray(landmarks, dtype=np.float32)
+    if lm.ndim != 2 or lm.shape[0] == 0:
+        return None
+
+    h, w = frame_shape[:2]
+    x1 = float(lm[:, 0].min())
+    y1 = float(lm[:, 1].min())
+    x2 = float(lm[:, 0].max())
+    y2 = float(lm[:, 1].max())
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    pad_x = (x2 - x1) * float(margin_x)
+    pad_y = (y2 - y1) * float(margin_y)
+
+    x1 = max(0, int(np.floor(x1 - pad_x)))
+    y1 = max(0, int(np.floor(y1 - pad_y)))
+    x2 = min(w, int(np.ceil(x2 + pad_x)))
+    y2 = min(h, int(np.ceil(y2 + pad_y)))
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    return x1, y1, x2, y2
+
+
+def detect_and_crop_face(frame, detector, predictor, faces=None, align=True):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    if faces is None:
-        faces = detector(gray, 1)
+    if faces is None or len(faces) == 0:
+        faces = _detect_faces(gray, detector)
 
     target_img = frame
     crop_box = None
@@ -62,10 +241,32 @@ def detect_and_crop_face(frame, detector, predictor, faces=None):
             shape = predictor(gray, face_rect)
             landmarks = [(shape.part(i).x, shape.part(i).y) for i in range(shape.num_parts)]
         except Exception:
-            pass
+            landmarks = None
 
-        target_img = frame[y1:y2, x1:x2]
-        crop_box = (x1, y1, x2, y2)
+        if align and landmarks is not None:
+            matrix = _compute_alignment_transform(landmarks)
+            if matrix is not None:
+                aligned = cv2.warpAffine(
+                    frame,
+                    matrix,
+                    (IMG_WIDTH, IMG_HEIGHT),
+                    flags=cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_REFLECT_101,
+                )
+                aligned_landmarks = _apply_affine(landmarks, matrix)
+                resized = cv2.cvtColor(aligned, cv2.COLOR_BGR2RGB)
+                normalized = resized.astype(np.float32) / 255.0
+                return normalized, (0, 0, IMG_WIDTH, IMG_HEIGHT), aligned_landmarks.tolist()
+
+        crop_box = _crop_box_from_landmarks(landmarks, frame.shape)
+        if crop_box is None:
+            target_img = frame[y1:y2, x1:x2]
+            crop_box = (x1, y1, x2, y2)
+        else:
+            x1, y1, x2, y2 = crop_box
+            target_img = frame[y1:y2, x1:x2]
+    else:
+        target_img, crop_box = _center_crop(frame)
 
     resized = cv2.resize(target_img, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
     if resized.ndim == 2:

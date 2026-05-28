@@ -596,7 +596,7 @@ def _sample_faces_from_video(
 
         sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
 
-        if any(f is None for f in sampled_faces):
+        if all(f is None for f in sampled_faces):
             sampled_faces = [_read_raw_frame(cap, idx) for idx in sample_indices]
 
         fallback = None

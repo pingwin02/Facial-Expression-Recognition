@@ -1,12 +1,18 @@
 import os
 import pickle
+import re
 import textwrap
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-DEFAULT_CACHE_DIR = "../input/.cache"
-DEFAULT_OUTPUT_DIR = "../output/pkl_previews"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
+DEFAULT_CACHE_DIR = os.path.join(PROJECT_ROOT, "input", ".cache")
+DEFAULT_OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output", "pkl_previews")
+
+MAX_VIDEO_NAME_LEN = 32
+VIDEO_NAME_KEEP = 12
 
 
 def list_cache_files(cache_dir):
@@ -19,7 +25,82 @@ def list_cache_files(cache_dir):
         if name.lower().endswith(".pkl") and os.path.isfile(os.path.join(cache_dir, name))
     ]
     files.sort(key=lambda path: os.path.basename(path).lower())
-    return files
+    return _dedupe_cache_files(files)
+
+
+def _parse_cache_filename(filename):
+    base = os.path.basename(filename)
+    stem = os.path.splitext(base)[0]
+    match = re.match(r"^(?P<dataset>.+?)_seed(?P<seed>\d+)_v(?P<ver>\d+)(?P<rest>.*)$", stem)
+    if not match:
+        return {"raw": base}
+
+    info = match.groupdict()
+    rest = info.pop("rest") or ""
+    for chunk in rest.split("__"):
+        if not chunk:
+            continue
+        if "-" not in chunk:
+            continue
+        key, value = chunk.split("-", 1)
+        info[key] = value
+    return info
+
+
+def _cache_key_without_class(info):
+    return (
+        info.get("dataset"),
+        info.get("seed"),
+        info.get("ver"),
+        info.get("nf"),
+        info.get("tr"),
+        info.get("te"),
+    )
+
+
+def _dedupe_cache_files(files):
+    preferred = {}
+    order = []
+
+    for path in files:
+        info = _parse_cache_filename(path)
+        if "dataset" not in info:
+            order.append(("raw", path))
+            continue
+
+        key = _cache_key_without_class(info)
+        cls_value = str(info.get("cls", "")).strip().lower()
+        if key not in preferred:
+            preferred[key] = (path, cls_value)
+            order.append(("key", key))
+            continue
+
+        current_path, current_cls = preferred[key]
+        if current_cls != "all" and cls_value == "all":
+            preferred[key] = (path, cls_value)
+
+    result = []
+    for tag, value in order:
+        if tag == "raw":
+            result.append(value)
+        else:
+            result.append(preferred[value][0])
+
+    return result
+
+
+def _cache_row_parts(filename):
+    info = _parse_cache_filename(filename)
+    if "dataset" not in info:
+        return [info.get("raw", os.path.basename(filename))]
+
+    return [
+        info["dataset"],
+        f"v{info.get('ver', '?')}",
+        f"nf={info.get('nf', '-')}",
+        f"tr={info.get('tr', '-')}",
+        f"te={info.get('te', '-')}",
+    ]
 
 
 def print_cache_files(cache_files):
@@ -27,29 +108,26 @@ def print_cache_files(cache_files):
         print("No .pkl files found in the cache directory.")
         return
 
+    rows = [
+        _cache_row_parts(path)
+        for path in cache_files
+    ]
+    max_cols = max(len(row) for row in rows)
+    widths = [0] * max_cols
+    for row in rows:
+        if len(row) <= 1:
+            continue
+        for col_idx, value in enumerate(row):
+            widths[col_idx] = max(widths[col_idx], len(value))
+
     print("Available .pkl files:")
-    for idx, path in enumerate(cache_files):
-        print(f"[{idx}] {os.path.basename(path)}")
-
-
-def prompt_for_index(cache_files):
-    max_index = len(cache_files) - 1
-    while True:
-        raw = input(f"\nSelect file index (0..{max_index}) or 'q' to quit: ").strip().lower()
-        if raw in ("q", "quit", "exit"):
-            return None
-        if not raw:
+    print("[0] all")
+    for idx, row in enumerate(rows, start=1):
+        if len(row) <= 1:
+            print(f"[{idx}] {row[0]}")
             continue
-        try:
-            index = int(raw)
-        except ValueError:
-            print("Please enter a valid integer index.")
-            continue
-
-        if 0 <= index <= max_index:
-            return index
-
-        print(f"Index out of range. Valid range: 0..{max_index}")
+        padded = " | ".join(value.ljust(widths[col_idx]) for col_idx, value in enumerate(row))
+        print(f"[{idx}] {padded}")
 
 
 def prompt_yes_no(question, default=False):
@@ -63,6 +141,27 @@ def prompt_yes_no(question, default=False):
         if raw in ("n", "no"):
             return False
         print("Please answer with 'y' or 'n'.")
+
+
+def prompt_int(question, default=0, min_value=None, max_value=None):
+    while True:
+        raw = input(f"{question} [default={default}]: ").strip()
+        if not raw:
+            return int(default)
+        try:
+            value = int(raw)
+        except ValueError:
+            print("Please enter a valid integer value.")
+            continue
+
+        if min_value is not None and value < int(min_value):
+            print(f"Value must be >= {int(min_value)}.")
+            continue
+        if max_value is not None and value > int(max_value):
+            print(f"Value must be <= {int(max_value)}.")
+            continue
+
+        return value
 
 
 def _to_uint_display(image):
@@ -116,21 +215,6 @@ def _extract_mask(image):
     return mask
 
 
-def _overlay_green_points(rgb, mask, min_strength=0.12):
-    if mask is None:
-        return rgb
-
-    out = np.array(rgb, dtype=np.float32, copy=True)
-    marker = mask >= float(min_strength)
-    if not np.any(marker):
-        return out
-
-    out[marker, 0] = 0.0
-    out[marker, 1] = 1.0
-    out[marker, 2] = 0.0
-    return out
-
-
 def _invert_label_map(label_map):
     if not isinstance(label_map, dict):
         return {}
@@ -169,23 +253,31 @@ def _extract_from_dataset_cache(payload, split):
     x_val = np.asarray(val_part[0]) if val_part is not None else np.array([])
     y_val = np.asarray(val_part[1]) if val_part is not None and len(val_part) >= 2 else np.array([])
     d_val = val_part[2] if val_part is not None and len(val_part) >= 3 else []
-    label_map = payload[2] if len(payload) >= 3 else {}
+    test_part = payload[2] if len(payload) >= 3 and isinstance(payload[2], tuple) else None
+    x_test = np.asarray(test_part[0]) if test_part is not None and len(test_part) >= 1 else np.array([])
+    y_test = np.asarray(test_part[1]) if test_part is not None and len(test_part) >= 2 else np.array([])
+    d_test = test_part[2] if test_part is not None and len(test_part) >= 3 else []
+
+    label_map = payload[3] if len(payload) >= 4 else {}
     inv_label_map = _invert_label_map(label_map)
 
     label_text_train = _labels_to_text(y_train, inv_label_map=inv_label_map)
     label_text_val = _labels_to_text(y_val, inv_label_map=inv_label_map)
+    label_text_test = _labels_to_text(y_test, inv_label_map=inv_label_map)
 
     if split == "train":
         return x_train, list(d_train), label_text_train
     if split == "val":
         return x_val, list(d_val), label_text_val
+    if split == "test":
+        return x_test, list(d_test), label_text_test
 
-    arrays = [arr for arr in (x_train, x_val) if arr.size > 0]
+    arrays = [arr for arr in (x_train, x_val, x_test) if arr.size > 0]
     if not arrays:
         return np.array([]), [], []
 
     x_all = np.concatenate(arrays, axis=0) if len(arrays) > 1 else arrays[0]
-    return x_all, list(d_train) + list(d_val), label_text_train + label_text_val
+    return x_all, list(d_train) + list(d_val) + list(d_test), label_text_train + label_text_val + label_text_test
 
 
 def _extract_from_checkpoint_cache(payload):
@@ -204,6 +296,16 @@ def _extract_from_checkpoint_cache(payload):
 def load_frames_and_debugs(pkl_path, split):
     with open(pkl_path, "rb") as f:
         payload = pickle.load(f)
+
+    is_dataset_cache = (
+            isinstance(payload, tuple)
+            and len(payload) >= 2
+            and isinstance(payload[0], tuple)
+            and isinstance(payload[1], tuple)
+    )
+
+    if split in ("train", "val", "test") and not is_dataset_cache:
+        raise RuntimeError("Split previews require a dataset cache file.")
 
     extracted = _extract_from_dataset_cache(payload, split=split)
     if extracted is None:
@@ -225,36 +327,50 @@ def load_frames_and_debugs(pkl_path, split):
 
 
 def _safe_debug_text(debugs, idx, label_texts=None):
-    bits = []
+    label_text = None
     if label_texts is not None and idx < len(label_texts):
-        label_text = str(label_texts[idx]).strip()
-        if label_text:
-            bits.append(label_text)
+        candidate = str(label_texts[idx]).strip()
+        if candidate:
+            label_text = candidate
 
-    if idx >= len(debugs) or not isinstance(debugs[idx], dict):
-        return " | ".join(bits)
+    debug = debugs[idx] if idx < len(debugs) and isinstance(debugs[idx], dict) else None
+    if label_text is None and debug and "label_name" in debug:
+        label_text = f"label={debug['label_name']}"
 
-    debug = debugs[idx]
-    if "video" in debug:
-        bits.append(f"video={debug['video']}")
-    if "frame_idx" in debug:
-        bits.append(f"frame_idx={debug['frame_idx']}")
-    if "label_name" in debug and not any(part.startswith("label=") for part in bits):
-        bits.append(f"label={debug['label_name']}")
-    return " | ".join(bits)
+    lines = []
+    if label_text:
+        lines.append(label_text)
+    if debug and "video" in debug:
+        video_name = os.path.basename(str(debug["video"]))
+        if video_name:
+            if len(video_name) > MAX_VIDEO_NAME_LEN:
+                head = video_name[:VIDEO_NAME_KEEP]
+                tail = video_name[-VIDEO_NAME_KEEP:]
+                video_name = f"{head}...{tail}"
+            lines.append(f"video={video_name}")
+    return "\n".join(lines)
 
 
 def _format_tile_title(frame_idx, debug_text, max_chars=42, max_lines=2):
     if not debug_text:
         return f"frame={frame_idx}"
 
-    wrapped = textwrap.wrap(debug_text, width=max_chars)
-    if len(wrapped) > max_lines:
-        wrapped = wrapped[:max_lines]
-        if wrapped[-1] and not wrapped[-1].endswith("..."):
-            wrapped[-1] = wrapped[-1][: max(0, max_chars - 3)].rstrip() + "..."
+    lines = []
+    for raw_line in str(debug_text).splitlines():
+        if not raw_line:
+            continue
+        wrapped = textwrap.wrap(raw_line, width=max_chars) or [""]
+        lines.extend(wrapped)
 
-    return "\n".join(wrapped)
+    if not lines:
+        return f"frame={frame_idx}"
+
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        if lines[-1] and not lines[-1].endswith("..."):
+            lines[-1] = lines[-1][: max(0, max_chars - 3)].rstrip() + "..."
+
+    return "\n".join(lines)
 
 
 def _prepare_frames_for_display(frames, debugs, label_texts):
@@ -331,7 +447,6 @@ def save_frames_preview_image(
         max_frames=0,
         save_count=64,
         cols=8,
-        overlay_green_points=False,
 ):
     total = int(len(frames))
     view_indices = _build_view_indices(total, start_index=start_index, max_frames=max_frames)
@@ -355,12 +470,7 @@ def save_frames_preview_image(
         ax = axes[ax_idx]
         sample = frames[frame_idx]
         rgb = _to_uint_display(sample)
-        mask = _extract_mask(sample)
-        if overlay_green_points:
-            rgb_with_landmarks = _overlay_green_points(rgb, mask)
-        else:
-            rgb_with_landmarks = rgb
-        ax.imshow(rgb_with_landmarks)
+        ax.imshow(rgb)
         dbg = _safe_debug_text(debugs, frame_idx, label_texts=label_texts)
         subtitle = _format_tile_title(frame_idx, dbg, max_chars=42, max_lines=2)
         ax.set_title(subtitle, fontsize=6)
@@ -383,7 +493,7 @@ def save_frames_preview_image(
 
 
 def show_frames_interactive(
-        frames, debugs, label_texts, title_prefix, start_index=0, max_frames=0, overlay_green_points=False
+        frames, debugs, label_texts, title_prefix, start_index=0, max_frames=0
 ):
     total = int(len(frames))
     view_indices = _build_view_indices(total, start_index=start_index, max_frames=max_frames)
@@ -392,7 +502,7 @@ def show_frames_interactive(
     first_sample = frames[view_indices[0]]
     first_rgb = _to_uint_display(first_sample)
     first_mask = _extract_mask(first_sample)
-    first_overlay = _overlay_green_points(first_rgb, first_mask) if overlay_green_points else first_rgb
+    first_overlay = first_rgb
 
     if first_mask is None:
         fig, ax_img = plt.subplots(1, 1, figsize=(7, 7))
@@ -402,10 +512,7 @@ def show_frames_interactive(
     else:
         fig, (ax_img, ax_mask) = plt.subplots(1, 2, figsize=(10, 5))
         im_img = ax_img.imshow(first_overlay)
-        if overlay_green_points:
-            ax_img.set_title("RGB + green landmark points")
-        else:
-            ax_img.set_title("RGB")
+        ax_img.set_title("RGB")
         ax_img.axis("off")
         im_mask = ax_mask.imshow(first_mask, cmap="magma", vmin=0.0, vmax=1.0)
         ax_mask.set_title("Mask (channel 4)")
@@ -416,8 +523,7 @@ def show_frames_interactive(
         sample = frames[global_idx]
         rgb = _to_uint_display(sample)
         mask = _extract_mask(sample)
-        rgb_with_landmarks = _overlay_green_points(rgb, mask) if overlay_green_points else rgb
-        im_img.set_data(rgb_with_landmarks)
+        im_img.set_data(rgb)
 
         text = f"{title_prefix} | frame {global_idx + 1}/{total}" f" | view {cursor['pos'] + 1}/{len(view_indices)}"
         dbg = _safe_debug_text(debugs, global_idx, label_texts=label_texts)
@@ -452,28 +558,31 @@ def show_frames_interactive(
 def main():
     cache_dir = DEFAULT_CACHE_DIR
     cache_files = list_cache_files(cache_dir)
+    print(f"Cache directory: {cache_dir}")
     print_cache_files(cache_files)
 
     if not cache_files:
+        if not os.path.isdir(cache_dir):
+            print(f"Cache directory not found: {cache_dir}")
+        else:
+            print(f"No .pkl files found in: {cache_dir}")
         return
 
     selected_paths = []
-    process_all = prompt_yes_no("Process all .pkl files at once?", default=False)
-    if process_all:
+    max_index = len(cache_files)
+    selection = prompt_int(
+        f"Select file (0=all, 1..{max_index} for item)",
+        default=0,
+        min_value=0,
+        max_value=max_index,
+    )
+    if selection == 0:
         selected_paths = list(cache_files)
+        process_all = True
     else:
-        selected_index = prompt_for_index(cache_files)
-        if selected_index is None:
-            print("Exiting.")
-            return
-        if selected_index < 0 or selected_index >= len(cache_files):
-            raise ValueError(f"Invalid index {selected_index}. Valid range: 0..{len(cache_files) - 1}")
+        selected_paths = [cache_files[selection - 1]]
+        process_all = False
 
-        selected_paths = [cache_files[selected_index]]
-
-    overlay_choice = prompt_yes_no("Overlay green points from mask channel?", default=False)
-
-    split = "all"
     start = 0
     max_frames = 0
 
@@ -481,8 +590,11 @@ def main():
     run_mode = "interactive" if has_display else "save"
 
     output_dir = DEFAULT_OUTPUT_DIR
-    save_count = 64
+    save_count = prompt_int("How many frames to show per preview? (0 = all)", default=64, min_value=0)
     save_cols = 8
+    generate_split_previews = False
+    if run_mode == "save":
+        generate_split_previews = prompt_yes_no("Generate train/val/test previews?", default=False)
 
     if process_all and run_mode == "interactive":
         print("Processing all files in interactive mode is not supported; switching to save mode.")
@@ -496,51 +608,63 @@ def main():
     for pkl_path in selected_paths:
         print(f"\nLoading: {pkl_path}")
 
-        frames, debugs, label_texts = load_frames_and_debugs(pkl_path, split=split)
-        frames, debugs, label_texts, preparation_note = _prepare_frames_for_display(frames, debugs, label_texts)
+        splits = ["all"]
+        if generate_split_previews:
+            splits.extend(["train", "val", "test"])
 
-        print(f"Number of samples: {len(frames)}")
-        if preparation_note:
-            print(preparation_note)
+        for split in splits:
+            try:
+                frames, debugs, label_texts = load_frames_and_debugs(pkl_path, split=split)
+            except RuntimeError as exc:
+                if split == "all":
+                    print(f"Skipping: {exc}")
+                else:
+                    print(f"Skipping split {split}: {exc}")
+                continue
 
-        first_mask = _extract_mask(frames[0]) if len(frames) > 0 else None
-        has_mask_channel = first_mask is not None
-        overlay_green_points = bool(overlay_choice and has_mask_channel)
-        if overlay_choice and not has_mask_channel:
-            print("Mask channel not detected; green-point overlay disabled for this file.")
+            frames, debugs, label_texts, preparation_note = _prepare_frames_for_display(frames, debugs, label_texts)
 
-        if run_mode == "interactive":
-            print("Controls: Left/Right arrows or A/D, Space=next, Q=quit")
-            show_frames_interactive(
+            if split == "all":
+                print(f"Number of samples: {len(frames)}")
+            else:
+                print(f"Number of samples ({split}): {len(frames)}")
+            if preparation_note:
+                print(preparation_note)
+
+            if run_mode == "interactive":
+                print("Controls: Left/Right arrows or A/D, Space=next, Q=quit")
+                title_prefix = os.path.basename(
+                    pkl_path) if split == "all" else f"{os.path.basename(pkl_path)} ({split})"
+                show_frames_interactive(
+                    frames=frames,
+                    debugs=debugs,
+                    label_texts=label_texts,
+                    title_prefix=title_prefix,
+                    start_index=start,
+                    max_frames=max_frames,
+                )
+                continue
+
+            output_name = os.path.splitext(os.path.basename(pkl_path))[0]
+            suffix = "" if split == "all" else f"_{split}"
+            output_path = os.path.join(output_dir, f"{output_name}_preview{suffix}.png")
+            title_prefix = os.path.basename(pkl_path) if split == "all" else f"{os.path.basename(pkl_path)} ({split})"
+            saved_path, shown_count, available_count = save_frames_preview_image(
                 frames=frames,
                 debugs=debugs,
                 label_texts=label_texts,
-                title_prefix=os.path.basename(pkl_path),
+                title_prefix=title_prefix,
+                output_path=output_path,
                 start_index=start,
                 max_frames=max_frames,
-                overlay_green_points=overlay_green_points,
+                save_count=save_count,
+                cols=save_cols,
             )
-            continue
-
-        output_name = os.path.splitext(os.path.basename(pkl_path))[0]
-        output_path = os.path.join(output_dir, f"{output_name}_preview.png")
-        saved_path, shown_count, available_count = save_frames_preview_image(
-            frames=frames,
-            debugs=debugs,
-            label_texts=label_texts,
-            title_prefix=os.path.basename(pkl_path),
-            output_path=output_path,
-            start_index=start,
-            max_frames=max_frames,
-            save_count=save_count,
-            cols=save_cols,
-            overlay_green_points=overlay_green_points,
-        )
-        saved_outputs.append(saved_path)
-        print(
-            f"Saved preview image: {saved_path} "
-            f"(shown {shown_count} sampled frame(s) from {available_count} selected frame(s))."
-        )
+            saved_outputs.append(saved_path)
+            print(
+                f"Saved preview image: {saved_path} "
+                f"(shown {shown_count} sampled frame(s) from {available_count} selected frame(s))."
+            )
 
     if run_mode == "save" and len(saved_outputs) > 1:
         print(f"\nSaved {len(saved_outputs)} preview file(s) to: {output_dir}")
