@@ -210,8 +210,6 @@ def save_gradcam_grid(
     if dataset_name:
         title_parts.append(str(dataset_name))
     title_parts.append("GradCAM")
-    if accuracy is not None:
-        title_parts.append(f"Accuracy: {accuracy * 100:.2f}%")
     title = " - ".join(title_parts)
     fig.suptitle(title, fontsize=13, y=0.995)
 

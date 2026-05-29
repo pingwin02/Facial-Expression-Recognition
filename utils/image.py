@@ -331,8 +331,6 @@ def save_sample_frames(
         title_parts.append(str(model_name))
     if dataset_name:
         title_parts.append(str(dataset_name))
-    if accuracy is not None:
-        title_parts.append(f"Accuracy: {accuracy * 100:.2f}%")
     title = " - ".join(title_parts) if title_parts else None
     if title:
         fig.suptitle(title, fontsize=13, y=0.995)
