@@ -44,14 +44,14 @@ Train and evaluate ResNetModel on devemo_combined, 5 frames, binary classes:
 
 ```bash
 python main.py --model ResNetModel --input devemo_combined --mode both --epochs 100 \
-    --train-frame-selection uniform --test-frame-selection uniform --num-frames 5 --class-split binary
+    --train-frame-selection uniform --test-frame-selection uniform --num-frames 5 --class-split binary --loop 1
 ```
 
 Same using numeric indices:
 
 ```bash
 python main.py --model 0 --input 4 --mode 2 --epochs 100 \
-    --train-frame-selection 0 --test-frame-selection 0 --num-frames 5 --class-split 0
+    --train-frame-selection 0 --test-frame-selection 0 --num-frames 5 --class-split 0 --loop 1
 ```
 
 Interactive mode (prompts for everything):

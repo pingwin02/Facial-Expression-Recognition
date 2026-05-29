@@ -113,7 +113,16 @@ Examples:
     parser.add_argument("--num-frames", type=int, default=None, help="Frames per video (default: 5)")
     parser.add_argument("--class-split", type=str, default=None, help="Class split: binary, all (or index 0-1)")
     parser.add_argument("--loop", type=int, default=None, help="Number of full run loops (default: 1)")
-    parser.add_argument("--no-cache", action="store_true", help="Disable dataset caching")
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Ignore existing cache and rebuild the dataset from disk",
+    )
+    parser.add_argument(
+        "--cache-only",
+        action="store_true",
+        help="Rebuild the dataset cache from disk and exit before training or evaluation",
+    )
 
     args = parser.parse_args()
 
@@ -200,5 +209,8 @@ Examples:
             args.loop = _prompt_int("Number of loops", 1)
         else:
             args.loop = 1
+
+    if args.cache_only:
+        args.no_cache = True
 
     return args

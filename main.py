@@ -48,6 +48,10 @@ def run_once(args, mode):
         cache_version=cache_version,
     )
 
+    if args.cache_only:
+        print(f"Cache-only mode enabled. Dataset cache is ready at input/.cache for {args.input}.")
+        return
+
     try:
         model_class = load_model_class(args.model)
         model = model_class()
@@ -97,6 +101,9 @@ def main():
         modes = ["train", "eval"]
     else:
         modes = [args.mode]
+
+    if args.cache_only:
+        modes = ["cache"]
 
     for loop_idx in range(1, args.loop + 1):
         if args.loop > 1:

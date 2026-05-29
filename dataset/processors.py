@@ -467,7 +467,7 @@ def process_image_directory(
 def _try_detect_face_at(cap, frame_idx, detector_pack):
     cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
     ret, frame = cap.read()
-    if not ret:
+    if not ret or np.var(frame) < 10.0:
         return None
     face, crop_box, _ = detect_and_crop_face(frame, *detector_pack)
     if face is None or face.ndim != 3 or face.shape[-1] < 3 or crop_box is None:
@@ -478,7 +478,7 @@ def _try_detect_face_at(cap, frame_idx, detector_pack):
 def _read_raw_frame(cap, frame_idx):
     cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
     ret, frame = cap.read()
-    if not ret:
+    if not ret or np.var(frame) < 10.0:
         return None
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     resized = cv2.resize(frame_rgb, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
@@ -545,6 +545,9 @@ def _sample_faces_from_video(
         if total_frames <= 0:
             return None, None
 
+        safe_start = min(5, total_frames - 1) if total_frames > 10 else 0
+        safe_end = max(safe_start, total_frames - 2)
+
         if use_manual_selection:
             from dataset.manual_frame_selector import manual_select_frames
 
@@ -565,7 +568,7 @@ def _sample_faces_from_video(
                     n_candidates = min(total_frames, max(remaining * 6, 30))
                     candidate_indices = [
                         int(i)
-                        for i in np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int)
+                        for i in np.linspace(safe_start, safe_end, n_candidates, dtype=int)
                         if int(i) not in already_selected
                     ]
                     auto_indices = _transformer_select_frames(cap, candidate_indices, remaining)
@@ -576,23 +579,25 @@ def _sample_faces_from_video(
                     )
                 else:
                     available = [i for i in range(total_frames) if i not in already_selected]
-                    auto_indices = np.linspace(0, max(0, len(available) - 1), remaining, dtype=int).tolist()
+                    auto_indices = np.linspace(safe_start, max(safe_start, len(available) - 1), remaining,
+                                               dtype=int).tolist()
                     auto_indices = [available[i] for i in auto_indices]
                 sample_indices = sorted(list(already_selected) + auto_indices)[:NUM_SAMPLE_FRAMES]
         elif use_transformer_selection:
             n_candidates = min(total_frames, max(NUM_SAMPLE_FRAMES * 6, 30))
-            candidate_indices = np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int).tolist()
+            candidate_indices = np.linspace(safe_start, safe_end, n_candidates, dtype=int).tolist()
             sample_indices = _transformer_select_frames(cap, candidate_indices, NUM_SAMPLE_FRAMES)
             if len(sample_indices) < NUM_SAMPLE_FRAMES:
-                sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+                sample_indices = np.linspace(safe_start, safe_end, NUM_SAMPLE_FRAMES, dtype=int).tolist()
         elif use_random_selection:
             sample_indices = sorted(
                 np.random.choice(
-                    max(1, total_frames - 1), size=min(NUM_SAMPLE_FRAMES, total_frames), replace=False
+                    range(safe_start, total_frames), size=min(NUM_SAMPLE_FRAMES, total_frames - safe_start),
+                    replace=False
                 ).tolist()
             )
         else:
-            sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+            sample_indices = np.linspace(safe_start, safe_end, NUM_SAMPLE_FRAMES, dtype=int).tolist()
 
         sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
 
