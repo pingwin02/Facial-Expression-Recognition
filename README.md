@@ -74,6 +74,7 @@ python main.py
 | `--class-split`           | `binary` or `all` (or 0-1)       | `binary`      |
 | `--loop`                  | Number of full run loops         | 1             |
 | `--no-cache`              | Disable dataset caching          | off           |
+| `--cache-only`            | Only recreate dataset cache      | off           |
 
 ### Quick regression check
 
