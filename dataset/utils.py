@@ -26,7 +26,10 @@ def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="la
 
     first_label = df[label_col].iloc[0]
     if isinstance(first_label, np.ndarray):
-        target_holdout_ids = max(1, int(round(len(unique_ids) * holdout_ratio)))
+        target_holdout_ids = max(
+            2 if float(val_ratio) > 0 and float(test_ratio) > 0 else 1,
+            int(round(len(unique_ids) * holdout_ratio)),
+        )
         rng.shuffle(unique_ids)
         holdout_ids = unique_ids[:target_holdout_ids]
         train_ids = set(unique_ids[target_holdout_ids:])
@@ -51,7 +54,10 @@ def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="la
     target_holdout_counts = total_counts * float(holdout_ratio)
     denom = np.maximum(1.0, target_holdout_counts)
 
-    target_holdout_ids = max(1, int(round(len(unique_ids) * holdout_ratio)))
+    target_holdout_ids = max(
+        2 if float(val_ratio) > 0 and float(test_ratio) > 0 else 1,
+        int(round(len(unique_ids) * holdout_ratio)),
+    )
     max_holdout_ids = max(1, len(unique_ids) - 1)
     target_holdout_ids = min(target_holdout_ids, max_holdout_ids)
 

@@ -6,8 +6,7 @@ import numpy as np
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
 
-BASE_CACHE_VERSION = "v25"
-CACHE_VERSION = BASE_CACHE_VERSION
+CACHE_VERSION = "v25"
 
 
 def _normalize_cache_token(value):
@@ -25,11 +24,11 @@ def build_cache_version(
         test_frame_selection = train_frame_selection
 
     if input_flag not in ("devemo", "devemo+", "devemo_combined"):
-        return BASE_CACHE_VERSION
+        return CACHE_VERSION
 
     resolved_num_frames = max(1, int(num_frames))
     return (
-        f"{BASE_CACHE_VERSION}"
+        f"{CACHE_VERSION}"
         f"__tr-{_normalize_cache_token(train_frame_selection)}"
         f"__te-{_normalize_cache_token(test_frame_selection)}"
         f"__nf-{resolved_num_frames}"
