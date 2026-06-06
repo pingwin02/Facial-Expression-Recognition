@@ -95,6 +95,9 @@ Useful variants:
 
 # combine both
 ./run_tests.sh --detached --debug
+
+# build cache for a specific dataset (e.g. veatic)
+DATASET_CACHE_TO_BUILD="veatic" ./run_tests.sh --cache-only --detached
 ```
 
 ### Optional: Weights & Biases (wandb) logging
