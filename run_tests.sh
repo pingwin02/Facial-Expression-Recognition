@@ -9,6 +9,7 @@ DEBUG=0
 CACHE_ONLY=0
 LOG_FILE="${SCRIPT_DIR}/out.log"
 PID_FILE="${SCRIPT_DIR}/out.pid"
+DEFAULT_NUM_FRAMES=5
 
 cleanup_pid_file() {
     if [[ -f "${PID_FILE}" ]] && [[ "$(cat "${PID_FILE}")" == "$$" ]]; then
@@ -35,6 +36,10 @@ while [[ $# -gt 0 ]]; do
             echo "  --detached    Run the test suite in the background and save PID to ${PID_FILE}"
             echo "  --debug       Override the suite to 1 loop and 10 epochs"
             echo "  --cache-only  Run main.py with --cache-only"
+            echo "Environment variables:"
+            echo "  NUM_FRAMES             Override --num-frames for the run."
+            echo "                         In --cache-only mode VEATIC defaults to 300 if unset; otherwise 5."
+            echo "  DATASET_CACHE_TO_BUILD Dataset name used with --cache-only (e.g. veatic)."
             exit 0
             ;;
         *)
@@ -75,18 +80,43 @@ if [[ -f "${PID_FILE}" ]] && [[ "$(cat "${PID_FILE}")" == "$$" ]]; then
     trap cleanup_pid_file EXIT
 fi
 
+if [[ -n "${NUM_FRAMES:-}" ]]; then
+    if ! [[ "${NUM_FRAMES}" =~ ^[0-9]+$ ]] || [[ "${NUM_FRAMES}" -lt 1 ]]; then
+        echo "NUM_FRAMES must be an integer >= 1." >&2
+        exit 1
+    fi
+fi
+
 if [[ ${CACHE_ONLY} -eq 1 ]]; then
+    if [[ -z "${DATASET_CACHE_TO_BUILD:-}" ]]; then
+        echo "DATASET_CACHE_TO_BUILD must be set when using --cache-only." >&2
+        exit 1
+    fi
+
+    CACHE_NUM_FRAMES="${NUM_FRAMES:-}"
+    if [[ -z "${CACHE_NUM_FRAMES}" ]]; then
+        if [[ "${DATASET_CACHE_TO_BUILD}" == "veatic" ]]; then
+            CACHE_NUM_FRAMES=300
+        else
+            CACHE_NUM_FRAMES=${DEFAULT_NUM_FRAMES}
+        fi
+    fi
+
     echo "======================================================"
     echo "Building cache..."
     echo "======================================================"
+    echo "Dataset: ${DATASET_CACHE_TO_BUILD}"
+    echo "Frames per video: ${CACHE_NUM_FRAMES}"
     python main.py --model 0 --input "${DATASET_CACHE_TO_BUILD}" --mode both \
         --epochs 1 --train-frame-selection uniform --test-frame-selection uniform \
-        --num-frames 5 --class-split "binary" --loop 1 --cache-only
+        --num-frames "${CACHE_NUM_FRAMES}" --class-split "binary" --loop 1 --cache-only
     echo "======================================================"
     echo "Cache built successfully!"
     echo "======================================================"
     exit 0
 fi
+
+RUN_NUM_FRAMES="${NUM_FRAMES:-${DEFAULT_NUM_FRAMES}}"
 
 echo "======================================================"
 echo "Starting all test runs with various configurations..."
@@ -100,10 +130,10 @@ for cls in "${CLASSES[@]}"; do
     for input in "${INPUTS[@]}"; do
         for model in "${MODELS[@]}"; do
             echo ""
-            echo "--- Model=$model Input=$input Class=$cls Epochs=$EPOCHS Loops=$LOOPS ---"
+            echo "--- Model=$model Input=$input Class=$cls Epochs=$EPOCHS Loops=$LOOPS NumFrames=$RUN_NUM_FRAMES ---"
             python main.py --model "$model" --input "$input" --mode both --epochs "$EPOCHS" \
                 --train-frame-selection uniform --test-frame-selection uniform \
-                --num-frames 5 --class-split "$cls" --loop "$LOOPS"
+                --num-frames "$RUN_NUM_FRAMES" --class-split "$cls" --loop "$LOOPS"
         done
     done
 done

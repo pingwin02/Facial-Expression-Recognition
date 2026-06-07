@@ -7,6 +7,7 @@ CLASS_SPLITS = ["binary", "all"]
 MODES = ["train", "eval", "both"]
 
 DEVEMO_INPUTS = {"devemo", "devemo+", "devemo_combined"}
+VEATIC_INPUTS = {"veatic"}
 
 
 def _discover_models():
@@ -110,7 +111,7 @@ Examples:
     parser.add_argument(
         "--test-frame-selection", type=str, default=None, help="Test frame selection method (name or index)"
     )
-    parser.add_argument("--num-frames", type=int, default=None, help="Frames per video (default: 5)")
+    parser.add_argument("--num-frames", type=int, default=None, help="Frames per video (default: 5 for devemo and 300 for veatic)")
     parser.add_argument("--class-split", type=str, default=None, help="Class split: binary, all (or index 0-1)")
     parser.add_argument("--loop", type=int, default=None, help="Number of full run loops (default: 1)")
     parser.add_argument(
@@ -160,6 +161,7 @@ Examples:
             args.epochs = 100
 
     is_devemo = args.input in DEVEMO_INPUTS
+    is_veatic = args.input in VEATIC_INPUTS
     if is_devemo:
         if args.train_frame_selection is not None:
             args.train_frame_selection = _resolve_arg(
@@ -193,6 +195,20 @@ Examples:
             args.class_split = _resolve_arg(args.class_split, CLASS_SPLITS, "class-split")
         elif interactive:
             args.class_split = _prompt_choice("Class split", CLASS_SPLITS, default_index=0)
+        else:
+            args.class_split = "binary"
+    elif is_veatic:
+        args.train_frame_selection = args.train_frame_selection or "uniform"
+        args.test_frame_selection = args.test_frame_selection or args.train_frame_selection
+
+        if args.num_frames is None:
+            if interactive:
+                args.num_frames = _prompt_int("Number of frames per VEATIC video", 300)
+            else:
+                args.num_frames = 300
+
+        if args.class_split is not None:
+            args.class_split = _resolve_arg(args.class_split, CLASS_SPLITS, "class-split")
         else:
             args.class_split = "binary"
     else:

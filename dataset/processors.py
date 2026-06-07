@@ -233,6 +233,167 @@ def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None)
     return next_index, X, y, debugs
 
 
+def _disk_store_base_path(storage_dir, storage_prefix, size_tag=None):
+    safe_size_tag = _checkpoint_size_tag(size_tag)
+    return os.path.join(storage_dir, f"{storage_prefix}_{safe_size_tag}")
+
+
+def _disk_store_paths(storage_dir, storage_prefix, size_tag=None):
+    base_path = _disk_store_base_path(storage_dir, storage_prefix, size_tag=size_tag)
+    return {
+        "X": f"{base_path}_X.npy",
+        "y": f"{base_path}_y.npy",
+        "meta": f"{base_path}_meta.pkl",
+        "debugs": f"{base_path}_debugs.pkl",
+    }
+
+
+def _ensure_disk_store_arrays(
+        storage_dir,
+        storage_prefix,
+        max_samples,
+        sample_shape,
+        sample_dtype=np.uint8,
+        label_dtype=np.uint8,
+        size_tag=None,
+):
+    os.makedirs(storage_dir, exist_ok=True)
+    paths = _disk_store_paths(storage_dir, storage_prefix, size_tag=size_tag)
+
+    expected_x_shape = (int(max_samples), *sample_shape)
+    expected_y_shape = (int(max_samples),)
+    sample_dtype = np.dtype(sample_dtype)
+    label_dtype = np.dtype(label_dtype)
+
+    if os.path.exists(paths["X"]):
+        X_store = np.load(paths["X"], mmap_mode="r+")
+        if X_store.shape != expected_x_shape or X_store.dtype != sample_dtype:
+            del X_store
+            os.remove(paths["X"])
+            X_store = np.lib.format.open_memmap(
+                paths["X"],
+                mode="w+",
+                dtype=sample_dtype,
+                shape=expected_x_shape,
+            )
+    else:
+        X_store = np.lib.format.open_memmap(
+            paths["X"],
+            mode="w+",
+            dtype=sample_dtype,
+            shape=expected_x_shape,
+        )
+
+    if os.path.exists(paths["y"]):
+        y_store = np.load(paths["y"], mmap_mode="r+")
+        if y_store.shape != expected_y_shape or y_store.dtype != label_dtype:
+            del y_store
+            os.remove(paths["y"])
+            y_store = np.lib.format.open_memmap(
+                paths["y"],
+                mode="w+",
+                dtype=label_dtype,
+                shape=expected_y_shape,
+            )
+    else:
+        y_store = np.lib.format.open_memmap(
+            paths["y"],
+            mode="w+",
+            dtype=label_dtype,
+            shape=expected_y_shape,
+        )
+
+    return paths, X_store, y_store
+
+
+def _convert_sample_for_storage(sample, target_dtype):
+    target_dtype = np.dtype(target_dtype)
+    if target_dtype == np.uint8:
+        return np.clip(np.rint(np.asarray(sample) * 255.0), 0, 255).astype(np.uint8)
+    return np.asarray(sample, dtype=target_dtype)
+
+
+def _save_disk_store_metadata(
+        storage_dir,
+        storage_prefix,
+        sample_count,
+        max_samples,
+        sample_shape,
+        sample_dtype,
+        label_dtype,
+        size_tag=None,
+):
+    paths = _disk_store_paths(storage_dir, storage_prefix, size_tag=size_tag)
+    payload = {
+        "sample_count": int(sample_count),
+        "max_samples": int(max_samples),
+        "sample_shape": tuple(int(dim) for dim in sample_shape),
+        "sample_dtype": np.dtype(sample_dtype).str,
+        "label_dtype": np.dtype(label_dtype).str,
+    }
+    with open(paths["meta"], "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return paths
+
+
+def _save_disk_backed_iteration_checkpoint(
+        checkpoint_dir,
+        checkpoint_prefix,
+        next_index,
+        sample_count,
+        debugs,
+        size_tag=None,
+):
+    if not checkpoint_dir or not checkpoint_prefix:
+        return None
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index, size_tag=size_tag)
+    payload = {
+        "next_index": int(next_index),
+        "sample_count": int(sample_count),
+        "debugs": debugs,
+    }
+
+    with open(path, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
+    for filename in os.listdir(checkpoint_dir):
+        match = pattern.match(filename)
+        if not match:
+            continue
+        candidate_path = os.path.join(checkpoint_dir, filename)
+        if candidate_path == path:
+            continue
+        try:
+            os.remove(candidate_path)
+        except OSError:
+            pass
+
+    return path
+
+
+def _load_disk_backed_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
+    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=size_tag)
+    if latest_path is None:
+        return 0, 0, []
+
+    with open(latest_path, "rb") as f:
+        payload = pickle.load(f)
+
+    next_index = int(payload.get("next_index", 0))
+    sample_count = int(payload.get("sample_count", 0))
+    debugs = payload.get("debugs", [])
+
+    print(
+        f"Resuming from checkpoint: {latest_path} "
+        f"(next_index={next_index}, samples={sample_count})"
+    )
+
+    return next_index, sample_count, debugs
+
+
 def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix, size_tag=None):
     if not checkpoint_dir or not checkpoint_prefix:
         return
@@ -266,11 +427,76 @@ def process_video_frames_with_frame_labels(
         checkpoint_prefix=None,
         save_checkpoint_every=1,
         resume_from_checkpoint=True,
+        disk_output_dir=None,
+        disk_output_prefix=None,
+        max_samples=None,
+        storage_dtype=np.uint8,
+        label_dtype=np.uint8,
 ):
-    if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+    use_disk_backed_storage = (
+        disk_output_dir is not None and disk_output_prefix is not None and max_samples is not None
+    )
+    checkpoint_stride = max(1, int(save_checkpoint_every))
+
+    if use_disk_backed_storage:
+        max_samples = max(1, int(max_samples))
+        if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+            start_index, sample_count, debugs = _load_disk_backed_iteration_checkpoint(
+                checkpoint_dir,
+                checkpoint_prefix,
+            )
+        else:
+            start_index, sample_count, debugs = 0, 0, []
+
+        reset_disk_storage = start_index == 0 and sample_count == 0
+        storage_paths = _disk_store_paths(disk_output_dir, disk_output_prefix)
+        if not reset_disk_storage and (
+                not os.path.exists(storage_paths["X"]) or not os.path.exists(storage_paths["y"])
+        ):
+            print("Checkpoint found without disk artifacts; restarting this split from scratch.")
+            start_index, sample_count, debugs = 0, 0, []
+            reset_disk_storage = True
+
+        if reset_disk_storage:
+            for path in storage_paths.values():
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+
+        storage_paths, X_store, y_store = _ensure_disk_store_arrays(
+            disk_output_dir,
+            disk_output_prefix,
+            max_samples,
+            sample_shape=(IMG_HEIGHT, IMG_WIDTH, 4),
+            sample_dtype=storage_dtype,
+            label_dtype=label_dtype,
+        )
+        X, y = None, None
+    elif resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
     else:
         start_index, X, y, debugs = 0, [], [], []
+
+    def maybe_save_progress(next_index):
+        if not checkpoint_dir or not checkpoint_prefix:
+            return
+        if next_index % checkpoint_stride != 0:
+            return
+
+        if use_disk_backed_storage:
+            X_store.flush()
+            y_store.flush()
+            _save_disk_backed_iteration_checkpoint(
+                checkpoint_dir,
+                checkpoint_prefix,
+                next_index,
+                sample_count,
+                debugs,
+            )
+        else:
+            _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, next_index, X, y, debugs)
 
     detector_pack = get_dlib_detector_predictor()
     detector, _ = detector_pack
@@ -287,22 +513,19 @@ def process_video_frames_with_frame_labels(
         arousal_seq = row.get("full_arousal_sequence", [])
         valence_seq = row.get("full_valence_sequence", [])
         if arousal_seq is None or valence_seq is None:
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            maybe_save_progress(row_idx + 1)
             continue
 
         arousal_seq = list(arousal_seq)
         valence_seq = list(valence_seq)
         sequence_length = min(len(arousal_seq), len(valence_seq))
         if sequence_length <= 0:
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            maybe_save_progress(row_idx + 1)
             continue
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            maybe_save_progress(row_idx + 1)
             continue
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -387,14 +610,46 @@ def process_video_frames_with_frame_labels(
                 "landmarks": landmarks,
             }
 
-            X.append(combined_img)
-            y.append(label)
+            if use_disk_backed_storage:
+                if sample_count >= max_samples:
+                    raise RuntimeError(
+                        f"Disk-backed storage overflow for '{disk_output_prefix}': "
+                        f"sample_count={sample_count}, max_samples={max_samples}."
+                    )
+                X_store[sample_count] = _convert_sample_for_storage(combined_img, storage_dtype)
+                y_store[sample_count] = label
+                sample_count += 1
+            else:
+                X.append(combined_img)
+                y.append(label)
             debugs.append(sample_debug)
 
         cap.release()
 
-        if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-            _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+        maybe_save_progress(row_idx + 1)
+
+    if use_disk_backed_storage:
+        X_store.flush()
+        y_store.flush()
+        del X_store
+        del y_store
+
+        _save_disk_store_metadata(
+            disk_output_dir,
+            disk_output_prefix,
+            sample_count=sample_count,
+            max_samples=max_samples,
+            sample_shape=(IMG_HEIGHT, IMG_WIDTH, 4),
+            sample_dtype=storage_dtype,
+            label_dtype=label_dtype,
+        )
+
+        with open(storage_paths["debugs"], "wb") as f:
+            pickle.dump(debugs, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        X_disk = np.load(storage_paths["X"], mmap_mode="r")[:sample_count]
+        y_disk = np.load(storage_paths["y"], mmap_mode="r")[:sample_count]
+        return X_disk, y_disk, debugs
 
     return np.array(X), np.array(y), debugs
 

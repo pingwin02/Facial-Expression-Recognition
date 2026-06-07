@@ -1,5 +1,6 @@
 import csv
 import os
+import pickle
 from collections import Counter
 
 import numpy as np
@@ -140,10 +141,12 @@ class VEATICSource(DatasetSource):
 
         return df, video_dir
 
-    def load(self, seed=42):
+    def load(self, seed=42, num_frames=300, cache_artifact_dir=None):
         df, video_dir = self._build_dataframe()
         if df.empty:
             raise RuntimeError("VEATIC dataset appears empty or missing paired rating/video files.")
+
+        resolved_num_frames = max(1, int(num_frames))
 
         unique_ids = np.array(df["video_id"].dropna().unique())
         if len(unique_ids) < 3:
@@ -172,42 +175,69 @@ class VEATICSource(DatasetSource):
         checkpoint_dir = os.path.join(self.input_dir, ".tmp")
         os.makedirs(checkpoint_dir, exist_ok=True)
 
+        checkpoint_tag = f"nf{resolved_num_frames}_disku8"
+        train_checkpoint_prefix = f"veatic_train_seed{seed}_{checkpoint_tag}"
+        val_checkpoint_prefix = f"veatic_val_seed{seed}_{checkpoint_tag}"
+        test_checkpoint_prefix = f"veatic_test_seed{seed}_{checkpoint_tag}"
+
+        if cache_artifact_dir:
+            os.makedirs(cache_artifact_dir, exist_ok=True)
+
         X_train, y_train, train_debugs = process_video_frames_with_frame_labels(
             train_df,
             video_dir,
             "filename",
             label_map,
-            frames_per_video=300,
+            frames_per_video=resolved_num_frames,
             checkpoint_dir=checkpoint_dir,
-            checkpoint_prefix=f"veatic_train_seed{seed}",
+            checkpoint_prefix=train_checkpoint_prefix,
             save_checkpoint_every=1,
             resume_from_checkpoint=True,
+            disk_output_dir=cache_artifact_dir,
+            disk_output_prefix="train",
+            max_samples=max(1, len(train_df) * resolved_num_frames),
+            storage_dtype=np.uint8,
+            label_dtype=np.uint8,
         )
         X_val, y_val, val_debugs = process_video_frames_with_frame_labels(
             val_df,
             video_dir,
             "filename",
             label_map,
-            frames_per_video=300,
+            frames_per_video=resolved_num_frames,
             checkpoint_dir=checkpoint_dir,
-            checkpoint_prefix=f"veatic_val_seed{seed}",
+            checkpoint_prefix=val_checkpoint_prefix,
             save_checkpoint_every=1,
             resume_from_checkpoint=True,
+            disk_output_dir=cache_artifact_dir,
+            disk_output_prefix="val",
+            max_samples=max(1, len(val_df) * resolved_num_frames),
+            storage_dtype=np.uint8,
+            label_dtype=np.uint8,
         )
         X_test, y_test, test_debugs = process_video_frames_with_frame_labels(
             test_df,
             video_dir,
             "filename",
             label_map,
-            frames_per_video=300,
+            frames_per_video=resolved_num_frames,
             checkpoint_dir=checkpoint_dir,
-            checkpoint_prefix=f"veatic_test_seed{seed}",
+            checkpoint_prefix=test_checkpoint_prefix,
             save_checkpoint_every=1,
             resume_from_checkpoint=True,
+            disk_output_dir=cache_artifact_dir,
+            disk_output_prefix="test",
+            max_samples=max(1, len(test_df) * resolved_num_frames),
+            storage_dtype=np.uint8,
+            label_dtype=np.uint8,
         )
 
-        cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_train_seed{seed}")
-        cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_val_seed{seed}")
-        cleanup_iteration_checkpoints(checkpoint_dir, f"veatic_test_seed{seed}")
+        cleanup_iteration_checkpoints(checkpoint_dir, train_checkpoint_prefix)
+        cleanup_iteration_checkpoints(checkpoint_dir, val_checkpoint_prefix)
+        cleanup_iteration_checkpoints(checkpoint_dir, test_checkpoint_prefix)
+
+        if cache_artifact_dir:
+            with open(os.path.join(cache_artifact_dir, "label_map.pkl"), "wb") as f:
+                pickle.dump(label_map, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map
