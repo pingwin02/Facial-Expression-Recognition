@@ -3,6 +3,7 @@ import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers, applications
 
 from models._base import BaseModel
+from models._data import ArrayBatchSequence, resolve_input_shape, should_stream_batches
 from utils.eval import evaluate_model_on_data
 from utils.model_io import find_and_load_model
 from utils.plotting import plot_metrics
@@ -155,19 +156,25 @@ class TransferModel(BaseModel):
         wandb_run = None
         wandb_callback = None
 
-        X_train = cls._prepare_inputs(X_train)
-        X_val = cls._prepare_inputs(X_val)
-
-        if X_train.ndim == 4:
-            X_train = np.expand_dims(X_train, axis=1)
-        if X_val.ndim == 4:
-            X_val = np.expand_dims(X_val, axis=1)
-
         class_weight_map = cls._build_class_weight_map(y_train, min_weight=0.3, max_weight=10.0)
         print(f"Class weights: {class_weight_map}")
 
         num_classes = len(np.unique(np.concatenate([y_train, y_val])))
-        input_shape = X_train.shape[1:]
+        input_shape = resolve_input_shape(X_train)
+        use_streaming_batches = should_stream_batches(X_train) or should_stream_batches(X_val)
+
+        if use_streaming_batches:
+            print("Using batch-streamed training inputs to avoid full RAM materialization.")
+            X_train_fit = None
+            X_val_fit = None
+        else:
+            X_train_fit = cls._prepare_inputs(X_train)
+            X_val_fit = cls._prepare_inputs(X_val)
+
+            if X_train_fit.ndim == 4:
+                X_train_fit = np.expand_dims(X_train_fit, axis=1)
+            if X_val_fit.ndim == 4:
+                X_val_fit = np.expand_dims(X_val_fit, axis=1)
 
         model = cls(input_shape=input_shape, num_classes=num_classes)
 
@@ -211,14 +218,31 @@ class TransferModel(BaseModel):
             if wandb_callback is not None:
                 warmup_callbacks.append(wandb_callback)
 
+            if use_streaming_batches:
+                warmup_train_data = ArrayBatchSequence(
+                    X_train,
+                    y_train,
+                    batch_size=16,
+                    shuffle=True,
+                    class_weight_map=class_weight_map,
+                )
+                warmup_val_data = ArrayBatchSequence(
+                    X_val,
+                    y_val,
+                    batch_size=16,
+                    shuffle=False,
+                )
+            else:
+                warmup_train_data = X_train_fit
+                warmup_val_data = (X_val_fit, y_val)
+
             history_warmup = model.model.fit(
-                X_train,
-                y_train,
+                warmup_train_data,
                 epochs=warmup_epochs,
-                batch_size=16,
-                class_weight=class_weight_map,
+                batch_size=None if use_streaming_batches else 16,
+                class_weight=None if use_streaming_batches else class_weight_map,
                 callbacks=warmup_callbacks,
-                validation_data=(X_val, y_val),
+                validation_data=warmup_val_data,
             )
 
             if epochs > warmup_epochs:
@@ -230,15 +254,32 @@ class TransferModel(BaseModel):
                 if wandb_callback is not None:
                     finetune_callbacks.append(wandb_callback)
 
+                if use_streaming_batches:
+                    finetune_train_data = ArrayBatchSequence(
+                        X_train,
+                        y_train,
+                        batch_size=8,
+                        shuffle=True,
+                        class_weight_map=class_weight_map,
+                    )
+                    finetune_val_data = ArrayBatchSequence(
+                        X_val,
+                        y_val,
+                        batch_size=8,
+                        shuffle=False,
+                    )
+                else:
+                    finetune_train_data = X_train_fit
+                    finetune_val_data = (X_val_fit, y_val)
+
                 history_finetune = model.model.fit(
-                    X_train,
-                    y_train,
+                    finetune_train_data,
                     initial_epoch=warmup_epochs,
                     epochs=epochs,
-                    batch_size=8,
+                    batch_size=None if use_streaming_batches else 8,
                     callbacks=finetune_callbacks,
-                    class_weight=class_weight_map,
-                    validation_data=(X_val, y_val),
+                    class_weight=None if use_streaming_batches else class_weight_map,
+                    validation_data=finetune_val_data,
                 )
 
                 history_dict = history_warmup.history

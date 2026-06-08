@@ -111,7 +111,8 @@ Examples:
     parser.add_argument(
         "--test-frame-selection", type=str, default=None, help="Test frame selection method (name or index)"
     )
-    parser.add_argument("--num-frames", type=int, default=None, help="Frames per video (default: 5 for devemo and 300 for veatic)")
+    parser.add_argument("--num-frames", type=int, default=None,
+                        help="Frames per video (default: 5 for devemo and 300 for veatic)")
     parser.add_argument("--class-split", type=str, default=None, help="Class split: binary, all (or index 0-1)")
     parser.add_argument("--loop", type=int, default=None, help="Number of full run loops (default: 1)")
     parser.add_argument(

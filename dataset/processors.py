@@ -434,7 +434,7 @@ def process_video_frames_with_frame_labels(
         label_dtype=np.uint8,
 ):
     use_disk_backed_storage = (
-        disk_output_dir is not None and disk_output_prefix is not None and max_samples is not None
+            disk_output_dir is not None and disk_output_prefix is not None and max_samples is not None
     )
     checkpoint_stride = max(1, int(save_checkpoint_every))
 

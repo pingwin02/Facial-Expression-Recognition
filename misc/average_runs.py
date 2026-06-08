@@ -51,15 +51,24 @@ def mean_std(v: list[float]) -> dict:
 
 def collect_grouped_runs(root: Path) -> dict[tuple[str, str, str], list[RunRecord]]:
     grouped = defaultdict(list)
-    for ep in root.glob("*/*/*/*/*_evaluation_metrics.json"):
+    for ep in root.rglob("*_evaluation_metrics.json"):
         tp = ep.parent / ep.name.replace("evaluation", "training")
-        if not tp.exists() or len(ep.parts) < 5:
+        if not tp.exists():
             continue
         try:
+            rel_parts = ep.relative_to(root).parts
+            if len(rel_parts) != 5:
+                continue
+
+            cache_version, model_name, dataset_name, timestamp, _ = rel_parts
+            file_model = ep.name[: -len("_evaluation_metrics.json")]
+            if file_model and model_name != file_model:
+                model_name = file_model
+
             with ep.open("r", encoding="utf-8") as f1, tp.open("r", encoding="utf-8") as f2:
                 rec = RunRecord(
-                    (ep.parts[-5], ep.parts[-4], ep.parts[-3]),
-                    ep.parts[-2],
+                    (cache_version, model_name, dataset_name),
+                    timestamp,
                     ep.parent,
                     tp,
                     ep,

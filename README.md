@@ -84,17 +84,27 @@ Run the bundled smoke-test script:
 ./run_tests.sh
 ```
 
+`run_tests.sh` reads its run matrix and training length from `run_tests.config.sh` in the project root.
+This config file is gitignored and should define `EPOCHS`, `LOOPS`, `MODELS`, `CLASSES`, and `INPUTS`.
+If `INPUTS` contains only datasets outside `devemo`, `devemo+`, and `devemo_combined`, use `CLASSES=()`.
+
+Example `run_tests.config.sh`:
+
+```bash
+EPOCHS=100
+LOOPS=10
+MODELS=("TransferModel" "ResNetModel")
+# CLASSES applies only to devemo/devemo+/devemo_combined inputs.
+# For configs without DevEmo datasets, use CLASSES=().
+CLASSES=("binary" "all")
+INPUTS=("veatic" "devemo_combined")
+```
+
 Useful variants:
 
 ```bash
-# run a short debug pass (1 loop, 10 epochs)
-./run_tests.sh --debug
-
 # run in background and save PID/logs in the project root
 ./run_tests.sh --detached
-
-# combine both
-./run_tests.sh --detached --debug
 
 # build cache for a specific dataset (e.g. veatic)
 DATASET_CACHE_TO_BUILD="veatic" ./run_tests.sh --cache-only --detached

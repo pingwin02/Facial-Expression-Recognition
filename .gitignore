@@ -7,3 +7,4 @@ output/
 *.log
 *.pid
 .env
+run_tests.config.sh

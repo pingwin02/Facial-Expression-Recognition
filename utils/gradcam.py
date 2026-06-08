@@ -23,7 +23,7 @@ def _find_target_layer(model):
     return None
 
 
-def _find_backbone_in_model(keras_model):
+def _find_backbone_wrapper_layer(keras_model):
     best = None
     best_params = 0
     for layer in keras_model.layers:
@@ -32,7 +32,7 @@ def _find_backbone_in_model(keras_model):
             if isinstance(inner, tf.keras.Model):
                 n_params = inner.count_params()
                 if n_params > best_params:
-                    best = inner
+                    best = layer
                     best_params = n_params
     if best is None:
         for layer in keras_model.layers:
@@ -41,15 +41,17 @@ def _find_backbone_in_model(keras_model):
                 if hasattr(inner, "layers"):
                     for sublayer in inner.layers:
                         if isinstance(sublayer, (tf.keras.layers.Conv2D, tf.keras.layers.DepthwiseConv2D)):
-                            return inner
+                            return layer
     return best
 
 
 def compute_gradcam_heatmap(model, input_tensor, class_idx=None):
-    backbone = _find_backbone_in_model(model)
-    if backbone is None:
+    backbone_wrapper = _find_backbone_wrapper_layer(model)
+    if backbone_wrapper is None:
         print("[GradCAM] Warning: No backbone found in model")
         return None
+
+    backbone = backbone_wrapper.layer
 
     target_layer_name = _find_target_layer(backbone)
     if target_layer_name is None:
@@ -72,13 +74,20 @@ def compute_gradcam_heatmap(model, input_tensor, class_idx=None):
         else:
             class_idx = int(tf.argmax(preds[0]).numpy())
 
+    pre_backbone_model = None
+    try:
+        pre_backbone_model = tf.keras.Model(inputs=model.input, outputs=backbone_wrapper.input)
+    except Exception:
+        pre_backbone_model = None
+
     rescaling_layer = None
-    for layer in model.layers:
-        if isinstance(layer, tf.keras.layers.TimeDistributed):
-            inner = layer.layer
-            if isinstance(inner, tf.keras.layers.Rescaling):
-                rescaling_layer = inner
-                break
+    if pre_backbone_model is None:
+        for layer in model.layers:
+            if isinstance(layer, tf.keras.layers.TimeDistributed):
+                inner = layer.layer
+                if isinstance(inner, tf.keras.layers.Rescaling):
+                    rescaling_layer = inner
+                    break
 
     bn_layer = None
     dense_layer = None
@@ -96,9 +105,16 @@ def compute_gradcam_heatmap(model, input_tensor, class_idx=None):
     grad_model = tf.keras.Model(inputs=backbone.input, outputs=[target_layer.output, backbone.output])
 
     with tf.GradientTape() as tape:
-        preprocessed_frame = center_frame
-        if rescaling_layer is not None:
-            preprocessed_frame = rescaling_layer(preprocessed_frame)
+        if pre_backbone_model is not None:
+            pre_backbone_sequence = pre_backbone_model(input_tf, training=False)
+            if len(pre_backbone_sequence.shape) == 5:
+                preprocessed_frame = pre_backbone_sequence[:, center_frame_idx]
+            else:
+                preprocessed_frame = pre_backbone_sequence
+        else:
+            preprocessed_frame = center_frame
+            if rescaling_layer is not None:
+                preprocessed_frame = rescaling_layer(preprocessed_frame)
 
         conv_outputs, backbone_features = grad_model(preprocessed_frame, training=False)
         tape.watch(conv_outputs)

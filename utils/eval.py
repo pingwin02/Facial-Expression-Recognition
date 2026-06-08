@@ -21,6 +21,25 @@ def _build_label_names(label_map, labels):
     return [str(inv.get(lbl, lbl)) for lbl in labels]
 
 
+def _align_model_input_channels(X, input_shape):
+    if input_shape is None or getattr(X, "ndim", None) is None or X.ndim < 3:
+        return X
+
+    try:
+        expected_channels = input_shape[-1]
+    except Exception:
+        return X
+
+    if expected_channels in (None, -1):
+        return X
+
+    current_channels = X.shape[-1]
+    if current_channels is None or int(current_channels) <= int(expected_channels):
+        return X
+
+    return X[..., : int(expected_channels)]
+
+
 def _format_metrics_block(title, y_true, y_pred, label_map=None):
     labels = sorted(np.unique(np.concatenate([y_true, y_pred])).tolist())
     label_names = _build_label_names(label_map, labels)
@@ -49,55 +68,73 @@ def _format_metrics_block(title, y_true, y_pred, label_map=None):
 
 
 def _select_unique_video_indices(val_debugs, max_samples):
-    if not val_debugs:
+    if not val_debugs or int(max_samples) <= 0:
         return []
-    selected = []
-    seen = set()
+
+    video_to_indices = {}
     for idx, debug in enumerate(val_debugs):
         if not isinstance(debug, dict):
             continue
         video_name = debug.get("video")
-        if not video_name or video_name in seen:
+        if not video_name:
             continue
-        selected.append(idx)
-        seen.add(video_name)
-        if len(selected) >= max_samples:
-            break
+        video_to_indices.setdefault(video_name, []).append(idx)
+
+    if not video_to_indices:
+        return []
+
+    rng = np.random.default_rng()
+    video_names = list(video_to_indices.keys())
+    rng.shuffle(video_names)
+
+    selected = []
+    for video_name in video_names[: int(max_samples)]:
+        selected.append(int(rng.choice(video_to_indices[video_name])))
+
     return selected
 
 
 def _select_correct_video_indices(val_debugs, y_true, y_pred, max_samples):
-    if not val_debugs:
+    if not val_debugs or int(max_samples) <= 0:
         return []
 
-    selected = []
-    seen = set()
+    rng = np.random.default_rng()
+    correct_video_to_indices = {}
+    all_video_to_indices = {}
 
     for idx, debug in enumerate(val_debugs):
         if not isinstance(debug, dict):
             continue
+        video_name = debug.get("video")
+        if not video_name:
+            continue
+
+        all_video_to_indices.setdefault(video_name, []).append(idx)
+
         if idx >= len(y_true) or idx >= len(y_pred):
             continue
         if int(y_true[idx]) != int(y_pred[idx]):
             continue
-        video_name = debug.get("video")
-        if not video_name or video_name in seen:
-            continue
-        selected.append(idx)
-        seen.add(video_name)
-        if len(selected) >= max_samples:
-            return selected
+        correct_video_to_indices.setdefault(video_name, []).append(idx)
 
-    for idx, debug in enumerate(val_debugs):
-        if not isinstance(debug, dict):
-            continue
-        video_name = debug.get("video")
-        if not video_name or video_name in seen:
-            continue
-        selected.append(idx)
-        seen.add(video_name)
-        if len(selected) >= max_samples:
-            break
+    selected = []
+    selected_videos = set()
+
+    correct_video_names = list(correct_video_to_indices.keys())
+    rng.shuffle(correct_video_names)
+    for video_name in correct_video_names[: int(max_samples)]:
+        selected.append(int(rng.choice(correct_video_to_indices[video_name])))
+        selected_videos.add(video_name)
+
+    if len(selected) >= int(max_samples):
+        return selected
+
+    remaining_video_names = [video_name for video_name in all_video_to_indices if video_name not in selected_videos]
+    rng.shuffle(remaining_video_names)
+    remaining_needed = int(max_samples) - len(selected)
+
+    for video_name in remaining_video_names[:remaining_needed]:
+        selected.append(int(rng.choice(all_video_to_indices[video_name])))
 
     return selected
 
@@ -152,59 +189,6 @@ def _select_unique_subject_indices(val_debugs, max_samples, y_true=None, y_pred=
 
     _collect(require_correct=False)
     return selected
-
-
-def _build_video_to_indices(debugs):
-    groups = {}
-    if not debugs:
-        return groups
-
-    for idx, debug in enumerate(debugs):
-        if not isinstance(debug, dict):
-            continue
-        video_name = debug.get("video")
-        if not video_name:
-            continue
-        groups.setdefault(video_name, []).append(idx)
-    return groups
-
-
-def _expand_indices_per_video(val_debugs, base_video_indices, frames_per_video=10):
-    if not base_video_indices:
-        return []
-
-    video_to_indices = _build_video_to_indices(val_debugs)
-    expanded = []
-    seen_videos = set()
-    rng = np.random.default_rng()
-
-    for base_idx in base_video_indices:
-        if base_idx >= len(val_debugs):
-            continue
-        debug = val_debugs[base_idx]
-        if not isinstance(debug, dict):
-            continue
-        video_name = debug.get("video")
-        if not video_name or video_name in seen_videos:
-            continue
-
-        candidate_indices = video_to_indices.get(video_name, [])
-        if not candidate_indices:
-            continue
-
-        sample_size = min(len(candidate_indices), max(1, int(frames_per_video)))
-        selected_for_video = rng.choice(candidate_indices, size=sample_size, replace=False).tolist()
-        selected_for_video = sorted(
-            selected_for_video,
-            key=lambda idx: (
-                int(val_debugs[idx].get("frame_idx", 10 ** 9)) if isinstance(val_debugs[idx], dict) else 10 ** 9,
-                idx,
-            ),
-        )
-        expanded.extend(selected_for_video)
-        seen_videos.add(video_name)
-
-    return expanded
 
 
 def _read_video_frame_total(dataset_path, video_name):
@@ -335,16 +319,21 @@ def evaluate_model_on_data(
         return
 
     expected_rank = None
+    input_shape = None
     try:
         if hasattr(loaded_model, "input_shape") and loaded_model.input_shape is not None:
             expected_rank = len(loaded_model.input_shape)
+            input_shape = loaded_model.input_shape
     except Exception:
         expected_rank = None
+        input_shape = None
 
     if expected_rank == 5 and hasattr(X_val, "ndim") and X_val.ndim == 4:
         X_val = np.expand_dims(X_val, axis=1)
     elif expected_rank == 4 and hasattr(X_val, "ndim") and X_val.ndim == 5:
         X_val = X_val[:, X_val.shape[1] // 2]
+
+    X_val = _align_model_input_channels(X_val, input_shape)
 
     all_predictions = loaded_model.predict(X_val, verbose=0)
 
@@ -426,14 +415,7 @@ def evaluate_model_on_data(
                 len(X_val), size=min(max_samples, len(X_val)), replace=False
             ).tolist()
 
-        selected_indices = _expand_indices_per_video(
-            val_debugs,
-            selected_video_anchor_indices,
-            frames_per_video=10,
-        )
-        if not selected_indices:
-            selected_indices = selected_video_anchor_indices
-
+        selected_indices = selected_video_anchor_indices
         selected_indices = sorted(
             selected_indices,
             key=lambda idx: (

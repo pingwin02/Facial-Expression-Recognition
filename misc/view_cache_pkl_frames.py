@@ -19,18 +19,47 @@ def list_cache_files(cache_dir):
     if not os.path.isdir(cache_dir):
         return []
 
-    files = [
+    pkl_files = [
         os.path.join(cache_dir, name)
         for name in os.listdir(cache_dir)
         if name.lower().endswith(".pkl") and os.path.isfile(os.path.join(cache_dir, name))
     ]
-    files.sort(key=lambda path: os.path.basename(path).lower())
-    return _dedupe_cache_files(files)
+
+    dir_caches = [
+        os.path.join(cache_dir, name)
+        for name in os.listdir(cache_dir)
+        if _is_directory_cache_entry(os.path.join(cache_dir, name))
+    ]
+
+    pkl_files.sort(key=lambda path: os.path.basename(path).lower())
+    dir_caches.sort(key=lambda path: os.path.basename(path).lower())
+    return _dedupe_cache_files(pkl_files) + dir_caches
+
+
+def _is_directory_cache_entry(path):
+    if not os.path.isdir(path):
+        return False
+    if not os.path.exists(os.path.join(path, "label_map.pkl")):
+        return False
+
+    for split_name in ("train", "val", "test"):
+        base = os.path.join(path, f"{split_name}_224x224")
+        if not os.path.exists(f"{base}_X.npy"):
+            return False
+        if not os.path.exists(f"{base}_y.npy"):
+            return False
+        if not os.path.exists(f"{base}_meta.pkl"):
+            return False
+
+    return True
 
 
 def _parse_cache_filename(filename):
     base = os.path.basename(filename)
-    stem = os.path.splitext(base)[0]
+    if base.lower().endswith(".pkl"):
+        stem = os.path.splitext(base)[0]
+    else:
+        stem = base
     match = re.match(r"^(?P<dataset>.+?)_seed(?P<seed>\d+)_v(?P<ver>\d+)(?P<rest>.*)$", stem)
     if not match:
         return {"raw": base}
@@ -105,7 +134,7 @@ def _cache_row_parts(filename):
 
 def print_cache_files(cache_files):
     if not cache_files:
-        print("No .pkl files found in the cache directory.")
+        print("No cache entries found in the cache directory.")
         return
 
     rows = [
@@ -120,7 +149,7 @@ def print_cache_files(cache_files):
         for col_idx, value in enumerate(row):
             widths[col_idx] = max(widths[col_idx], len(value))
 
-    print("Available .pkl files:")
+    print("Available cache entries (.pkl and directory caches):")
     print("[0] all")
     for idx, row in enumerate(rows, start=1):
         if len(row) <= 1:
@@ -293,7 +322,68 @@ def _extract_from_checkpoint_cache(payload):
     return x, list(debugs), label_texts
 
 
+def _directory_split_paths(cache_path, split):
+    base = os.path.join(cache_path, f"{split}_224x224")
+    return {
+        "X": f"{base}_X.npy",
+        "y": f"{base}_y.npy",
+        "meta": f"{base}_meta.pkl",
+        "debugs": f"{base}_debugs.pkl",
+    }
+
+
+def _extract_from_directory_cache(cache_path, split):
+    with open(os.path.join(cache_path, "label_map.pkl"), "rb") as f:
+        label_map = pickle.load(f)
+    inv_label_map = _invert_label_map(label_map)
+
+    def load_split(split_name):
+        paths = _directory_split_paths(cache_path, split_name)
+        with open(paths["meta"], "rb") as f_meta:
+            meta = pickle.load(f_meta)
+        sample_count = int(meta.get("sample_count", 0))
+        x_split = np.load(paths["X"], mmap_mode="r")[:sample_count]
+        y_split = np.load(paths["y"], mmap_mode="r")[:sample_count]
+        if os.path.exists(paths["debugs"]):
+            with open(paths["debugs"], "rb") as f_dbg:
+                d_split = pickle.load(f_dbg)
+        else:
+            d_split = []
+        l_split = _labels_to_text(y_split, inv_label_map=inv_label_map)
+        return x_split, list(d_split), l_split
+
+    if split in ("train", "val", "test"):
+        return load_split(split)
+
+    merged_frames = []
+    merged_debugs = []
+    merged_labels = []
+    for split_name in ("train", "val", "test"):
+        x_split, d_split, l_split = load_split(split_name)
+        if x_split.size > 0:
+            merged_frames.append(np.asarray(x_split))
+        merged_debugs.extend(d_split)
+        merged_labels.extend(l_split)
+
+    if not merged_frames:
+        return np.array([]), merged_debugs, merged_labels
+
+    if len(merged_frames) == 1:
+        x_all = merged_frames[0]
+    else:
+        x_all = np.concatenate(merged_frames, axis=0)
+
+    return x_all, merged_debugs, merged_labels
+
+
 def load_frames_and_debugs(pkl_path, split):
+    if os.path.isdir(pkl_path):
+        frames, debugs, label_texts = _extract_from_directory_cache(pkl_path, split=split)
+        frames = np.asarray(frames)
+        if frames.size == 0:
+            raise RuntimeError("Selected directory cache does not contain image frames to display.")
+        return frames, debugs, list(label_texts)
+
     with open(pkl_path, "rb") as f:
         payload = pickle.load(f)
 
@@ -565,7 +655,7 @@ def main():
         if not os.path.isdir(cache_dir):
             print(f"Cache directory not found: {cache_dir}")
         else:
-            print(f"No .pkl files found in: {cache_dir}")
+            print(f"No cache entries found in: {cache_dir}")
         return
 
     selected_paths = []
