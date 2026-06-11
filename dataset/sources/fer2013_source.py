@@ -1,5 +1,7 @@
 import os
 
+import numpy as np
+
 from dataset.processors import cleanup_iteration_checkpoints, process_image_directory
 from dataset.sources.base_source import DatasetSource
 from dataset.utils import label_distribution_from_image_folders
@@ -57,4 +59,19 @@ class FER2013Source(DatasetSource):
         cleanup_iteration_checkpoints(checkpoint_dir, f"fer2013_train_seed{seed}")
         cleanup_iteration_checkpoints(checkpoint_dir, f"fer2013_val_seed{seed}")
 
-        return (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map
+        rng = np.random.default_rng(seed)
+        n = len(X_val)
+        indices = rng.permutation(n)
+        split_idx = n // 2
+        val_idx = indices[:split_idx]
+        test_idx = indices[split_idx:]
+
+        X_test, y_test, test_debugs = X_val[test_idx], y_val[test_idx], [val_debugs[i] for i in test_idx]
+        X_val_final, y_val_final, val_debugs_final = X_val[val_idx], y_val[val_idx], [val_debugs[i] for i in val_idx]
+
+        return (
+            (X_train, y_train, train_debugs),
+            (X_val_final, y_val_final, val_debugs_final),
+            (X_test, y_test, test_debugs),
+            label_map,
+        )

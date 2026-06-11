@@ -1,12 +1,14 @@
 import json
-import numpy as np
 import os
+
+import numpy as np
 from sklearn.metrics import (
     balanced_accuracy_score,
     precision_recall_fscore_support,
     f1_score,
 )
 
+from utils.gradcam import save_gradcam_grid
 from utils.image import save_sample_frames
 from utils.plotting import save_confusion_matrix
 from utils.veatic_visualization import create_veatic_visualizations
@@ -17,6 +19,25 @@ def _build_label_names(label_map, labels):
         return [str(lbl) for lbl in labels]
     inv = {v: k for k, v in label_map.items()}
     return [str(inv.get(lbl, lbl)) for lbl in labels]
+
+
+def _align_model_input_channels(X, input_shape):
+    if input_shape is None or getattr(X, "ndim", None) is None or X.ndim < 3:
+        return X
+
+    try:
+        expected_channels = input_shape[-1]
+    except Exception:
+        return X
+
+    if expected_channels in (None, -1):
+        return X
+
+    current_channels = X.shape[-1]
+    if current_channels is None or int(current_channels) <= int(expected_channels):
+        return X
+
+    return X[..., : int(expected_channels)]
 
 
 def _format_metrics_block(title, y_true, y_pred, label_map=None):
@@ -47,110 +68,127 @@ def _format_metrics_block(title, y_true, y_pred, label_map=None):
 
 
 def _select_unique_video_indices(val_debugs, max_samples):
-    if not val_debugs:
-        return []
-    selected = []
-    seen = set()
-    for idx, debug in enumerate(val_debugs):
-        if not isinstance(debug, dict):
-            continue
-        video_name = debug.get("video")
-        if not video_name or video_name in seen:
-            continue
-        selected.append(idx)
-        seen.add(video_name)
-        if len(selected) >= max_samples:
-            break
-    return selected
-
-
-def _select_correct_video_indices(val_debugs, y_true, y_pred, max_samples):
-    if not val_debugs:
+    if not val_debugs or int(max_samples) <= 0:
         return []
 
-    selected = []
-    seen = set()
-
+    video_to_indices = {}
     for idx, debug in enumerate(val_debugs):
-        if not isinstance(debug, dict):
-            continue
-        if idx >= len(y_true) or idx >= len(y_pred):
-            continue
-        if int(y_true[idx]) != int(y_pred[idx]):
-            continue
-        video_name = debug.get("video")
-        if not video_name or video_name in seen:
-            continue
-        selected.append(idx)
-        seen.add(video_name)
-        if len(selected) >= max_samples:
-            return selected
-
-    for idx, debug in enumerate(val_debugs):
-        if not isinstance(debug, dict):
-            continue
-        video_name = debug.get("video")
-        if not video_name or video_name in seen:
-            continue
-        selected.append(idx)
-        seen.add(video_name)
-        if len(selected) >= max_samples:
-            break
-
-    return selected
-
-
-def _build_video_to_indices(debugs):
-    groups = {}
-    if not debugs:
-        return groups
-
-    for idx, debug in enumerate(debugs):
         if not isinstance(debug, dict):
             continue
         video_name = debug.get("video")
         if not video_name:
             continue
-        groups.setdefault(video_name, []).append(idx)
-    return groups
+        video_to_indices.setdefault(video_name, []).append(idx)
 
-
-def _expand_indices_per_video(val_debugs, base_video_indices, frames_per_video=10):
-    if not base_video_indices:
+    if not video_to_indices:
         return []
 
-    video_to_indices = _build_video_to_indices(val_debugs)
-    expanded = []
-    seen_videos = set()
     rng = np.random.default_rng()
+    video_names = list(video_to_indices.keys())
+    rng.shuffle(video_names)
 
-    for base_idx in base_video_indices:
-        if base_idx >= len(val_debugs):
-            continue
-        debug = val_debugs[base_idx]
+    selected = []
+    for video_name in video_names[: int(max_samples)]:
+        selected.append(int(rng.choice(video_to_indices[video_name])))
+
+    return selected
+
+
+def _select_correct_video_indices(val_debugs, y_true, y_pred, max_samples):
+    if not val_debugs or int(max_samples) <= 0:
+        return []
+
+    rng = np.random.default_rng()
+    correct_video_to_indices = {}
+    all_video_to_indices = {}
+
+    for idx, debug in enumerate(val_debugs):
         if not isinstance(debug, dict):
             continue
         video_name = debug.get("video")
-        if not video_name or video_name in seen_videos:
+        if not video_name:
             continue
 
-        candidate_indices = video_to_indices.get(video_name, [])
-        if not candidate_indices:
+        all_video_to_indices.setdefault(video_name, []).append(idx)
+
+        if idx >= len(y_true) or idx >= len(y_pred):
             continue
+        if int(y_true[idx]) != int(y_pred[idx]):
+            continue
+        correct_video_to_indices.setdefault(video_name, []).append(idx)
 
-        sample_size = min(len(candidate_indices), max(1, int(frames_per_video)))
-        selected_for_video = rng.choice(candidate_indices, size=sample_size, replace=False).tolist()
-        selected_for_video = sorted(
-            selected_for_video,
-            key=lambda idx: (
-                int(val_debugs[idx].get("frame_idx", 10**9)) if isinstance(val_debugs[idx], dict) else 10**9,
-                idx,
-            ),
-        )
-        expanded.extend(selected_for_video)
-        seen_videos.add(video_name)
+    selected = []
+    selected_videos = set()
 
-    return expanded
+    correct_video_names = list(correct_video_to_indices.keys())
+    rng.shuffle(correct_video_names)
+    for video_name in correct_video_names[: int(max_samples)]:
+        selected.append(int(rng.choice(correct_video_to_indices[video_name])))
+        selected_videos.add(video_name)
+
+    if len(selected) >= int(max_samples):
+        return selected
+
+    remaining_video_names = [video_name for video_name in all_video_to_indices if video_name not in selected_videos]
+    rng.shuffle(remaining_video_names)
+    remaining_needed = int(max_samples) - len(selected)
+
+    for video_name in remaining_video_names[:remaining_needed]:
+        selected.append(int(rng.choice(all_video_to_indices[video_name])))
+
+    return selected
+
+
+def _debug_identity_key(debug):
+    if not isinstance(debug, dict):
+        return None
+
+    participant = debug.get("participant")
+    if participant is not None and str(participant).strip() != "":
+        return ("participant", str(participant))
+
+    video_name = debug.get("video")
+    if video_name:
+        return ("video", str(video_name))
+
+    return None
+
+
+def _select_unique_subject_indices(val_debugs, max_samples, y_true=None, y_pred=None):
+    if not val_debugs:
+        return []
+
+    selected = []
+    seen = set()
+
+    def _collect(require_correct):
+        for idx, debug in enumerate(val_debugs):
+            if not isinstance(debug, dict):
+                continue
+            if require_correct:
+                if y_true is None or y_pred is None:
+                    continue
+                if idx >= len(y_true) or idx >= len(y_pred):
+                    continue
+                if int(y_true[idx]) != int(y_pred[idx]):
+                    continue
+
+            identity = _debug_identity_key(debug)
+            if identity is None or identity in seen:
+                continue
+
+            selected.append(idx)
+            seen.add(identity)
+            if len(selected) >= max_samples:
+                return True
+
+        return False
+
+    if _collect(require_correct=True):
+        return selected
+
+    _collect(require_correct=False)
+    return selected
 
 
 def _read_video_frame_total(dataset_path, video_name):
@@ -177,13 +215,13 @@ def _read_video_frame_total(dataset_path, video_name):
 
 def _video_sort_key(video_name):
     if not video_name:
-        return (1, "", 10**9)
+        return (1, "", 10 ** 9)
 
     base = os.path.splitext(os.path.basename(str(video_name)))[0]
     try:
         return (0, "", int(base))
     except ValueError:
-        return (1, base.lower(), 10**9)
+        return (1, base.lower(), 10 ** 9)
 
 
 def _collect_metrics_dict(y_true, y_pred, label_map=None):
@@ -264,16 +302,16 @@ def _evaluate_video_level(predictions, y_labels, debug_infos, is_binary):
 
 
 def evaluate_model_on_data(
-    loaded_model,
-    val_tuple,
-    output_dir,
-    model_name="simple_sample_grid",
-    max_samples=9,
-    label_map=None,
-    dataset_name=None,
-    dataset_path=None,
-    train_tuple=None,
-    cache_label=None,
+        loaded_model,
+        val_tuple,
+        output_dir,
+        model_name="simple_sample_grid",
+        max_samples=9,
+        label_map=None,
+        dataset_name=None,
+        dataset_path=None,
+        train_tuple=None,
+        cache_label=None,
 ):
     X_val, y_val, val_debugs = val_tuple
 
@@ -281,16 +319,21 @@ def evaluate_model_on_data(
         return
 
     expected_rank = None
+    input_shape = None
     try:
         if hasattr(loaded_model, "input_shape") and loaded_model.input_shape is not None:
             expected_rank = len(loaded_model.input_shape)
+            input_shape = loaded_model.input_shape
     except Exception:
         expected_rank = None
+        input_shape = None
 
     if expected_rank == 5 and hasattr(X_val, "ndim") and X_val.ndim == 4:
         X_val = np.expand_dims(X_val, axis=1)
     elif expected_rank == 4 and hasattr(X_val, "ndim") and X_val.ndim == 5:
         X_val = X_val[:, X_val.shape[1] // 2]
+
+    X_val = _align_model_input_channels(X_val, input_shape)
 
     all_predictions = loaded_model.predict(X_val, verbose=0)
 
@@ -372,14 +415,7 @@ def evaluate_model_on_data(
                 len(X_val), size=min(max_samples, len(X_val)), replace=False
             ).tolist()
 
-        selected_indices = _expand_indices_per_video(
-            val_debugs,
-            selected_video_anchor_indices,
-            frames_per_video=10,
-        )
-        if not selected_indices:
-            selected_indices = selected_video_anchor_indices
-
+        selected_indices = selected_video_anchor_indices
         selected_indices = sorted(
             selected_indices,
             key=lambda idx: (
@@ -389,15 +425,28 @@ def evaluate_model_on_data(
                     else None
                 ),
                 (
-                    int(val_debugs[idx].get("frame_idx", 10**9))
+                    int(val_debugs[idx].get("frame_idx", 10 ** 9))
                     if idx < len(val_debugs) and isinstance(val_debugs[idx], dict)
-                    else 10**9
+                    else 10 ** 9
                 ),
                 int(idx),
             ),
         )
     else:
-        selected_indices = np.random.choice(len(X_val), size=min(max_samples, len(X_val)), replace=False).tolist()
+        target_count = min(max_samples, len(X_val))
+        selected_indices = _select_unique_subject_indices(
+            val_debugs,
+            target_count,
+            y_true=y_val_processed,
+            y_pred=all_preds_labels,
+        )
+
+        if len(selected_indices) < target_count:
+            remaining_indices = [idx for idx in range(len(X_val)) if idx not in set(selected_indices)]
+            if remaining_indices:
+                rng = np.random.default_rng()
+                rng.shuffle(remaining_indices)
+                selected_indices.extend(remaining_indices[: target_count - len(selected_indices)])
 
     selected_indices = [int(idx) for idx in selected_indices]
 
@@ -420,7 +469,7 @@ def evaluate_model_on_data(
         debug = {"frame_index": int(idx), "predicted_label": int(preds_sample[i]), "true_label": int(labels_sample[i])}
 
         if debug_info and isinstance(debug_info, dict):
-            debug.update({k: debug_info.get(k) for k in ["video", "frame_idx"] if k in debug_info})
+            debug.update({k: debug_info.get(k) for k in ["video", "frame_idx", "participant"] if k in debug_info})
 
             video_name = debug.get("video")
             if video_name:
@@ -446,6 +495,26 @@ def evaluate_model_on_data(
         highlight_correctness_bg=True,
         cols=3,
     )
+
+    try:
+        gradcam_frames = X_val[selected_indices]
+        if hasattr(gradcam_frames, "ndim") and gradcam_frames.ndim == 4:
+            gradcam_frames = np.expand_dims(gradcam_frames, axis=1)
+        save_gradcam_grid(
+            loaded_model,
+            gradcam_frames,
+            preds_sample,
+            labels_sample,
+            debugs_sample,
+            output_dir,
+            model_name=model_name,
+            dataset_name=dataset_name,
+            accuracy=accuracy,
+            filename=f"{model_name}_gradcam.png",
+            cols=3,
+        )
+    except Exception as e:
+        print(f"Warning: GradCAM generation failed: {e}")
 
     if dataset_name == "veatic" and dataset_path is not None:
         print(f"Generating VEATIC visualizations...")
@@ -502,18 +571,21 @@ def evaluate_model_on_data(
     for video_name in list(eval_frame_ids_per_video.keys()):
         eval_frame_ids_per_video[video_name] = sorted(eval_frame_ids_per_video[video_name])
 
-    train_count = None
-    if train_tuple is not None and len(train_tuple) > 0 and train_tuple[0] is not None:
-        try:
-            train_count = int(len(train_tuple[0]))
-        except Exception:
-            train_count = None
+    eval_participants = set()
+    for d in val_debugs:
+        if isinstance(d, dict):
+            p = d.get("participant")
+            if p:
+                eval_participants.add(str(p))
+    eval_participants = sorted(eval_participants)
 
     test_count = int(len(X_val))
     metrics_json["data_summary"] = {
-        "train_samples": train_count,
         "test_samples": test_count,
+        "test_participants": len(eval_participants),
+        "test_participant_ids": eval_participants,
         "evaluation_videos": int(len(eval_frames_per_video)),
+        "evaluation_video_names": sorted(eval_frames_per_video.keys()),
         "evaluation_frames_total": int(sum(eval_frames_per_video.values())),
         "example_videos": int(len(example_frames_per_video)),
         "example_frames_total": int(len(selected_indices)),

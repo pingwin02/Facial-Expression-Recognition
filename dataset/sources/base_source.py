@@ -41,6 +41,9 @@ class DatasetSource(ABC):
     def label_distribution(self):
         return None
 
+    def participants_info(self):
+        return None
+
     @abstractmethod
     def load(self, seed=42):
         pass

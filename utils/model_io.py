@@ -41,26 +41,70 @@ def _path_has_dataset_segment(path, dataset_name):
     return str(dataset_name).strip().lower() in parts
 
 
-def find_and_load_model(model_prefix="SimpleModel", dataset_name=None):
-    if dataset_name:
+def _path_has_cache_segment(path, cache_version):
+    if not cache_version:
+        return True
+
+    normalized = os.path.normpath(path).replace("\\", "/").lower()
+    parts = [part for part in normalized.split("/") if part]
+    return str(cache_version).strip().lower() in parts
+
+
+def _path_timestamp_folder(path):
+    return os.path.basename(os.path.dirname(path))
+
+
+def _is_expected_model_path(path):
+    normalized = os.path.normpath(path).replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part and part != "."]
+    if len(parts) != 6 or parts[0].lower() != "output":
+        return False
+
+    try:
+        datetime.datetime.strptime(parts[4], "%Y%m%d-%H%M%S")
+    except ValueError:
+        return False
+
+    return True
+
+
+def find_and_load_model(model_prefix="SimpleModel", dataset_name=None, cache_version=None):
+    if dataset_name and cache_version:
+        print(
+            f"Searching for models matching '{model_prefix}', dataset '{dataset_name}', and cache '{cache_version}'..."
+        )
+    elif dataset_name:
         print(f"Searching for models matching '{model_prefix}' and dataset '{dataset_name}'...")
+    elif cache_version:
+        print(f"Searching for models matching '{model_prefix}' and cache '{cache_version}'...")
     else:
         print(f"Searching for models matching '{model_prefix}'...")
 
     models = glob.glob(os.path.join(".", "**", "*.keras"), recursive=True)
-    all_models = [path for path in models if "backup" not in path.lower()]
+    all_models = [path for path in models if _is_expected_model_path(path)]
 
     candidates = []
     for path in all_models:
         normalized_path = path.lower()
-        if model_prefix.lower() in normalized_path and _path_has_dataset_segment(path, dataset_name):
+        if (
+                model_prefix.lower() in normalized_path
+                and _path_has_dataset_segment(path, dataset_name)
+                and _path_has_cache_segment(path, cache_version)
+        ):
             candidates.append(path)
 
-    candidates.sort(key=os.path.getmtime, reverse=True)
+    candidates.sort(key=_path_timestamp_folder, reverse=True)
 
     if not candidates:
-        if dataset_name:
+        if dataset_name and cache_version:
+            print(
+                "Error: No trained models found matching prefix "
+                f"'{model_prefix}' for dataset '{dataset_name}' and cache '{cache_version}'."
+            )
+        elif dataset_name:
             print(f"Error: No trained models found matching prefix '{model_prefix}' for dataset '{dataset_name}'.")
+        elif cache_version:
+            print(f"Error: No trained models found matching prefix '{model_prefix}' for cache '{cache_version}'.")
         else:
             print(f"Error: No trained models found matching prefix '{model_prefix}'.")
         return None, None

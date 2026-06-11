@@ -1,7 +1,6 @@
 import csv
 import html as html_lib
 import json
-import numpy as np
 import os
 import re
 import shutil
@@ -12,24 +11,37 @@ from collections import Counter
 from datetime import datetime, timezone
 from http.cookiejar import CookieJar
 
+import numpy as np
 
-def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
+
+def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="label"):
     unique_ids = np.array(df[id_col].dropna().unique())
-    if len(unique_ids) < 2:
-        return df.copy().reset_index(drop=True), df.iloc[0:0].copy().reset_index(drop=True)
+    if len(unique_ids) < 3:
+        empty = df.iloc[0:0].copy().reset_index(drop=True)
+        return df.copy().reset_index(drop=True), empty, empty
 
     rng = np.random.default_rng(seed)
 
+    holdout_ratio = val_ratio + test_ratio
+
     first_label = df[label_col].iloc[0]
     if isinstance(first_label, np.ndarray):
-        target_val_ids = max(1, int(round(len(unique_ids) * val_ratio)))
+        target_holdout_ids = max(
+            2 if float(val_ratio) > 0 and float(test_ratio) > 0 else 1,
+            int(round(len(unique_ids) * holdout_ratio)),
+        )
         rng.shuffle(unique_ids)
-        val_ids = set(unique_ids[:target_val_ids])
-        train_ids = set(unique_ids[target_val_ids:])
+        holdout_ids = unique_ids[:target_holdout_ids]
+        train_ids = set(unique_ids[target_holdout_ids:])
 
-        val_df = df[df[id_col].isin(val_ids)].copy().reset_index(drop=True)
+        val_split = max(1, int(round(len(holdout_ids) * (val_ratio / holdout_ratio))))
+        val_ids = set(holdout_ids[:val_split])
+        test_ids = set(holdout_ids[val_split:])
+
         train_df = df[df[id_col].isin(train_ids)].copy().reset_index(drop=True)
-        return train_df, val_df
+        val_df = df[df[id_col].isin(val_ids)].copy().reset_index(drop=True)
+        test_df = df[df[id_col].isin(test_ids)].copy().reset_index(drop=True)
+        return train_df, val_df, test_df
 
     id_label_counts_df = df.groupby([id_col, label_col]).size().unstack(fill_value=0).sort_index(axis=1)
     labels = list(id_label_counts_df.columns)
@@ -39,110 +51,121 @@ def split_data(df, id_col, seed=42, val_ratio=0.2, label_col="label"):
     }
 
     total_counts = id_label_counts_df.sum(axis=0).to_numpy(dtype=np.float64)
-    target_val_counts = total_counts * float(val_ratio)
-    denom = np.maximum(1.0, target_val_counts)
+    target_holdout_counts = total_counts * float(holdout_ratio)
+    denom = np.maximum(1.0, target_holdout_counts)
 
-    target_val_ids = max(1, int(round(len(unique_ids) * val_ratio)))
-    max_val_ids = max(1, len(unique_ids) - 1)
-    target_val_ids = min(target_val_ids, max_val_ids)
+    target_holdout_ids = max(
+        2 if float(val_ratio) > 0 and float(test_ratio) > 0 else 1,
+        int(round(len(unique_ids) * holdout_ratio)),
+    )
+    max_holdout_ids = max(1, len(unique_ids) - 1)
+    target_holdout_ids = min(target_holdout_ids, max_holdout_ids)
 
     ordered_ids = list(id_to_counts.keys())
     rng.shuffle(ordered_ids)
 
-    val_ids = set()
-    current_val_counts = np.zeros(len(labels), dtype=np.float64)
+    holdout_ids = set()
+    current_holdout_counts = np.zeros(len(labels), dtype=np.float64)
 
     def balance_error(counts):
-        diff = (counts - target_val_counts) / denom
+        diff = (counts - target_holdout_counts) / denom
         return float(np.sum(diff * diff))
 
     for identity in ordered_ids:
-        if len(val_ids) >= target_val_ids:
+        if len(holdout_ids) >= target_holdout_ids:
             break
 
-        before = balance_error(current_val_counts)
-        candidate_counts = current_val_counts + id_to_counts[identity]
+        before = balance_error(current_holdout_counts)
+        candidate_counts = current_holdout_counts + id_to_counts[identity]
         after = balance_error(candidate_counts)
 
-        if after <= before or len(val_ids) < max(1, target_val_ids // 2):
-            val_ids.add(identity)
-            current_val_counts = candidate_counts
+        if after <= before or len(holdout_ids) < max(1, target_holdout_ids // 2):
+            holdout_ids.add(identity)
+            current_holdout_counts = candidate_counts
 
-    if len(val_ids) < target_val_ids:
-        remaining_ids = [identity for identity in ordered_ids if identity not in val_ids]
-        remaining_ids.sort(key=lambda ident: balance_error(current_val_counts + id_to_counts[ident]))
+    if len(holdout_ids) < target_holdout_ids:
+        remaining_ids = [identity for identity in ordered_ids if identity not in holdout_ids]
+        remaining_ids.sort(key=lambda ident: balance_error(current_holdout_counts + id_to_counts[ident]))
         for identity in remaining_ids:
-            if len(val_ids) >= target_val_ids:
+            if len(holdout_ids) >= target_holdout_ids:
                 break
-            val_ids.add(identity)
-            current_val_counts = current_val_counts + id_to_counts[identity]
+            holdout_ids.add(identity)
+            current_holdout_counts = current_holdout_counts + id_to_counts[identity]
 
-    train_ids = [identity for identity in ordered_ids if identity not in val_ids]
+    train_ids = [identity for identity in ordered_ids if identity not in holdout_ids]
     if len(train_ids) == 0:
-        moved = next(iter(val_ids))
-        val_ids.remove(moved)
+        moved = next(iter(holdout_ids))
+        holdout_ids.remove(moved)
         train_ids = [moved]
 
-    train_label_counts = total_counts - current_val_counts
+    train_label_counts = total_counts - current_holdout_counts
 
     for label_idx in range(len(labels)):
         total_for_label = total_counts[label_idx]
         if total_for_label < 2:
             continue
 
-        if current_val_counts[label_idx] <= 0:
+        if current_holdout_counts[label_idx] <= 0:
             candidates = [
                 ident
                 for ident in train_ids
                 if id_to_counts[ident][label_idx] > 0
-                and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
+                   and (train_label_counts[label_idx] - id_to_counts[ident][label_idx]) > 0
             ]
-            if candidates and len(val_ids) < max_val_ids:
-                chosen = min(candidates, key=lambda ident: balance_error(current_val_counts + id_to_counts[ident]))
+            if candidates and len(holdout_ids) < max_holdout_ids:
+                chosen = min(candidates, key=lambda ident: balance_error(current_holdout_counts + id_to_counts[ident]))
                 train_ids.remove(chosen)
-                val_ids.add(chosen)
-                current_val_counts = current_val_counts + id_to_counts[chosen]
+                holdout_ids.add(chosen)
+                current_holdout_counts = current_holdout_counts + id_to_counts[chosen]
                 train_label_counts = train_label_counts - id_to_counts[chosen]
 
         if train_label_counts[label_idx] <= 0:
-            candidates = [ident for ident in val_ids if id_to_counts[ident][label_idx] > 0]
-            if candidates and len(val_ids) > 1:
+            candidates = [ident for ident in holdout_ids if id_to_counts[ident][label_idx] > 0]
+            if candidates and len(holdout_ids) > 1:
                 chosen = max(candidates, key=lambda ident: id_to_counts[ident][label_idx])
-                val_ids.remove(chosen)
+                holdout_ids.remove(chosen)
                 train_ids.append(chosen)
-                current_val_counts = current_val_counts - id_to_counts[chosen]
+                current_holdout_counts = current_holdout_counts - id_to_counts[chosen]
                 train_label_counts = train_label_counts + id_to_counts[chosen]
 
-    val_ids = list(val_ids)
+    holdout_ids = list(holdout_ids)
 
     train_df = df[df[id_col].isin(train_ids)].reset_index(drop=True)
-    val_df = df[df[id_col].isin(val_ids)].reset_index(drop=True)
+    holdout_df = df[df[id_col].isin(holdout_ids)].reset_index(drop=True)
 
-    if len(train_df) == 0 or len(val_df) == 0:
+    if len(train_df) == 0 or len(holdout_df) == 0:
         rng.shuffle(unique_ids)
-        split_idx = int((1.0 - val_ratio) * len(unique_ids))
+        split_idx = int((1.0 - holdout_ratio) * len(unique_ids))
         split_idx = min(max(1, split_idx), len(unique_ids) - 1)
         train_ids = unique_ids[:split_idx]
-        val_ids = unique_ids[split_idx:]
+        holdout_ids = unique_ids[split_idx:]
         train_df = df[df[id_col].isin(train_ids)].reset_index(drop=True)
-        val_df = df[df[id_col].isin(val_ids)].reset_index(drop=True)
+        holdout_df = df[df[id_col].isin(holdout_ids)].reset_index(drop=True)
 
-    return train_df, val_df
+    holdout_unique_ids = np.array(holdout_df[id_col].dropna().unique())
+    rng2 = np.random.default_rng(seed + 1)
+    rng2.shuffle(holdout_unique_ids)
+    val_split = max(1, int(round(len(holdout_unique_ids) * (val_ratio / holdout_ratio))))
+    val_split = min(val_split, len(holdout_unique_ids) - 1)
+    val_ids = set(holdout_unique_ids[:val_split])
+    test_ids = set(holdout_unique_ids[val_split:])
+
+    val_df = holdout_df[holdout_df[id_col].isin(val_ids)].reset_index(drop=True)
+    test_df = holdout_df[holdout_df[id_col].isin(test_ids)].reset_index(drop=True)
+
+    return train_df, val_df, test_df
 
 
 def print_stats(name, arr, label_map=None, split_arrays=None):
     print(f"\nDataset stats ({name}):")
 
     if split_arrays is not None:
-        if len(split_arrays) != 2:
-            print("  Invalid split_arrays. Expected (train_array, val_array).")
+        if len(split_arrays) not in (2, 3):
+            print("  Invalid split_arrays. Expected (train, val, test) or (train, val).")
             return
 
-        train_arr, val_arr = split_arrays
-        train_arr = np.asarray(train_arr)
-        val_arr = np.asarray(val_arr)
-
-        if train_arr.size == 0 and val_arr.size == 0:
+        arrays = [np.asarray(a) for a in split_arrays]
+        if all(a.size == 0 for a in arrays):
             print("  No samples.")
             return
 
@@ -150,15 +173,16 @@ def print_stats(name, arr, label_map=None, split_arrays=None):
             print("  split summary requires label_map.")
             return
 
-        total = np.concatenate([train_arr, val_arr], axis=0)
+        total = np.concatenate(arrays, axis=0)
         total_counts = Counter(total.tolist())
-        train_counts = Counter(train_arr.tolist())
-        val_counts = Counter(val_arr.tolist())
+        counts_per_split = [Counter(a.tolist()) for a in arrays]
 
         total_n = int(len(total))
-        train_n = int(len(train_arr))
-        val_n = int(len(val_arr))
-        print(f"  all={total_n} train={train_n} val={val_n}")
+        split_names = ["train", "val", "test"] if len(arrays) == 3 else ["train", "val"]
+        header = f"  all={total_n}"
+        for sname, a in zip(split_names, arrays):
+            header += f" {sname}={int(len(a))}"
+        print(header)
 
         inv_label_map = {v: k for k, v in label_map.items()}
         all_label_indices = sorted(total_counts.keys())
@@ -166,10 +190,12 @@ def print_stats(name, arr, label_map=None, split_arrays=None):
         for lbl_idx in all_label_indices:
             label_name = inv_label_map.get(lbl_idx, str(lbl_idx))
             all_cnt = int(total_counts.get(lbl_idx, 0))
-            train_cnt = int(train_counts.get(lbl_idx, 0))
-            val_cnt = int(val_counts.get(lbl_idx, 0))
-            val_ratio = (100.0 * val_cnt / all_cnt) if all_cnt > 0 else 0.0
-            print(f"  {label_name}: all={all_cnt} train={train_cnt} " f"val={val_cnt} val%={val_ratio:.1f}")
+            parts = f"  {label_name}: all={all_cnt}"
+            for sname, sc in zip(split_names, counts_per_split):
+                cnt = int(sc.get(lbl_idx, 0))
+                ratio = (100.0 * cnt / all_cnt) if all_cnt > 0 else 0.0
+                parts += f" {sname}={cnt} {sname}%={ratio:.1f}"
+            print(parts)
         return
 
     if len(arr) == 0:
@@ -339,13 +365,14 @@ def label_distribution_from_image_folders(root_dir):
 
 
 def write_dataset_details_json(
-    dataset_name,
-    dataset_path,
-    download_url,
-    archive_name,
-    dataset_zip,
-    required_marker,
-    labels_distribution,
+        dataset_name,
+        dataset_path,
+        download_url,
+        archive_name,
+        dataset_zip,
+        required_marker,
+        labels_distribution,
+        participants=None,
 ):
     details_path = os.path.join(dataset_path, "!dataset_details.json")
     details = {
@@ -361,6 +388,9 @@ def write_dataset_details_json(
         "summary": summarize_dataset_folder(dataset_path),
         "labels": labels_distribution,
     }
+
+    if participants is not None:
+        details["participants"] = participants
 
     with open(details_path, "w", encoding="utf-8") as f:
         json.dump(details, f, ensure_ascii=False, indent=2)

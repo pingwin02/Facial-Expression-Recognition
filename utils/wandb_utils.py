@@ -58,7 +58,7 @@ def init_wandb_run(model_name, dataset_name=None, epochs=None, output_dir=None, 
         return None, None
 
     project = (
-        os.environ.get("WANDB_PROJECT", "facial-expression-recognition").strip() or "facial-expression-recognition"
+            os.environ.get("WANDB_PROJECT", "facial-expression-recognition").strip() or "facial-expression-recognition"
     )
     entity = os.environ.get("WANDB_ENTITY", "").strip() or None
     mode = os.environ.get("WANDB_MODE", "online").strip() or "online"

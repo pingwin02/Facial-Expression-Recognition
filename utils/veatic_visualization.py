@@ -1,9 +1,10 @@
 import csv
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import matplotlib.patches as mpatches
-import numpy as np
 import os
+
+import matplotlib.patches as mpatches
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.lines import Line2D
 
 
 def read_veatic_sequence(csv_path):
@@ -108,14 +109,14 @@ def plot_veatic_frame_label_timeline(arousal_seq, valence_seq, video_name, outpu
 
 
 def plot_veatic_timeline(
-    arousal_seq,
-    valence_seq,
-    video_name,
-    selected_frames=None,
-    selected_frame_correct=None,
-    showcase_frames=None,
-    output_path=None,
-    threshold=0.0,
+        arousal_seq,
+        valence_seq,
+        video_name,
+        selected_frames=None,
+        selected_frame_correct=None,
+        showcase_frames=None,
+        output_path=None,
+        threshold=0.0,
 ):
     fig, ax = plt.subplots(figsize=(18, 6))
 
@@ -261,7 +262,6 @@ def plot_veatic_timeline(
 def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictions, output_path=None, threshold=0.0):
     fig, ax = plt.subplots(figsize=(14, 12))
 
-    # Determine colors based on correctness
     colors = []
     for true_label, pred_label in zip(labels, predictions):
         if true_label == pred_label:
@@ -269,12 +269,10 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         else:
             colors.append("red")
 
-    # Plot points
     scatter = ax.scatter(
         valence_vals, arousal_vals, c=colors, s=90, alpha=0.55, edgecolors="black", linewidth=1.2, zorder=8
     )
 
-    # Draw threshold lines
     ax.axhline(y=threshold, color="black", linestyle="-", linewidth=3, label="Classification Threshold")
     ax.axvline(x=threshold, color="black", linestyle="-", linewidth=3)
 
@@ -290,7 +288,6 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         pad=20,
     )
 
-    # Quadrant labels with better descriptions
     ax.text(
         0.55,
         0.55,
@@ -339,7 +336,6 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
         bbox=dict(boxstyle="round", facecolor="#3498db", alpha=0.4, edgecolor="black", linewidth=2),
     )
 
-    # Legend (dots only)
     correct_count = sum(color == "green" for color in colors)
     incorrect_count = sum(color == "red" for color in colors)
     correct_handle = Line2D(
@@ -374,16 +370,16 @@ def plot_arousal_valence_quadrants(arousal_vals, valence_vals, labels, predictio
 
 
 def create_veatic_visualizations(
-    val_data,
-    predictions,
-    true_labels,
-    label_map,
-    output_dir,
-    dataset_path,
-    max_samples=10,
-    model=None,
-    selected_videos=None,
-    selected_sample_indices=None,
+        val_data,
+        predictions,
+        true_labels,
+        label_map,
+        output_dir,
+        dataset_path,
+        max_samples=10,
+        model=None,
+        selected_videos=None,
+        selected_sample_indices=None,
 ):
     os.makedirs(output_dir, exist_ok=True)
 

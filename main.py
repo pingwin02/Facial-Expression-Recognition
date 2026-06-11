@@ -3,41 +3,54 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 from dataset.downloader import ensure_dataset
-from dataset.loader import load_data, CACHE_VERSION
+from dataset.loader import build_cache_version, load_data
 
-import sys
-import argparse
-
+from utils.cli import parse_args
 from utils.model_io import load_model_class, prepare_output_directory, cleanup_empty_dirs
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Facial Expression Recognition Training/Evaluation")
-    parser.add_argument("--model", type=str, help="Model class name")
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "eval"], help="Mode")
-    parser.add_argument("--epochs", type=int, default=None, help="Number of epochs (train mode only)")
-    parser.add_argument(
-        "--input",
-        type=str,
-        required=True,
-        choices=["devemo", "devemo+", "fer2013", "veatic"],
-        help="Input format/folder",
+def run_once(args, mode):
+    cache_version = build_cache_version(
+        input_flag=args.input,
+        train_frame_selection=args.train_frame_selection,
+        test_frame_selection=args.test_frame_selection,
+        num_frames=args.num_frames,
+        class_split=args.class_split,
     )
-    parser.add_argument("--no-cache", action="store_true", help="Disable caching")
-    args = parser.parse_args()
 
     INPUT_DIR = "input"
 
-    for arg in vars(args):
+    print(f"\n{'=' * 50}")
+    print(f"  mode: {mode}")
+    for arg in (
+            "model",
+            "input",
+            "epochs",
+            "train_frame_selection",
+            "test_frame_selection",
+            "num_frames",
+            "class_split",
+    ):
         print(f"  {arg}: {getattr(args, arg)}")
+    print(f"  cache_version: {cache_version}")
+    print(f"{'=' * 50}\n")
 
     ensure_dataset(INPUT_DIR, dataset_name=args.input)
 
-    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), label_map = load_data(
+    (X_train, y_train, train_debugs), (X_val, y_val, val_debugs), (X_test, y_test, test_debugs), label_map = load_data(
         INPUT_DIR,
         args.input,
         no_cache=args.no_cache,
+        train_frame_selection=args.train_frame_selection,
+        test_frame_selection=args.test_frame_selection,
+        num_frames=args.num_frames,
+        class_split=args.class_split,
+        cache_version=cache_version,
     )
+
+    if args.cache_only:
+        print(f"Cache-only mode enabled. Dataset cache is ready at input/.cache for {args.input}.")
+        return
 
     try:
         model_class = load_model_class(args.model)
@@ -48,12 +61,9 @@ def main():
         raise ValueError(str(e))
 
     try:
-        if args.mode == "train":
-            if args.epochs is None:
-                print("Error: --epochs must be specified for training.")
-                sys.exit(1)
+        if mode == "train":
             OUTPUT_DIR, MODEL_PATH = prepare_output_directory(
-                model, args.mode, dataset=args.input, cache_version=CACHE_VERSION
+                model, mode, dataset=args.input, cache_version=cache_version
             )
             model.train(
                 X_train,
@@ -67,21 +77,39 @@ def main():
                 train_debugs=train_debugs,
                 val_debugs=val_debugs,
                 dataset_name=args.input,
+                cache_label=cache_version,
             )
 
-        if args.mode == "eval":
-            if args.epochs is not None:
-                print("Warning: --epochs argument is ignored in eval mode.")
+        if mode == "eval":
             dataset_path = os.path.join(INPUT_DIR, args.input)
             model.eval(
-                (X_val, y_val, val_debugs),
+                (X_test, y_test, test_debugs),
                 label_map=label_map,
                 dataset_name=args.input,
                 dataset_path=dataset_path,
                 train_tuple=(X_train, y_train, train_debugs),
+                cache_label=cache_version,
             )
     finally:
         cleanup_empty_dirs()
+
+
+def main():
+    args = parse_args()
+
+    if args.mode == "both":
+        modes = ["train", "eval"]
+    else:
+        modes = [args.mode]
+
+    if args.cache_only:
+        modes = ["cache"]
+
+    for loop_idx in range(1, args.loop + 1):
+        if args.loop > 1:
+            print(f"\n>>> Loop {loop_idx}/{args.loop}")
+        for mode in modes:
+            run_once(args, mode)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,9 @@
 import json
-import matplotlib.pyplot as plt
-import numpy as np
 import os
 import textwrap
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def _summarize_frames_by_video(debugs):
@@ -32,11 +33,22 @@ def _summarize_frames_by_video(debugs):
     return frames_per_video, frame_ids_per_video
 
 
+def _extract_participants(debugs):
+    participants = set()
+    if not debugs:
+        return sorted(participants)
+    for debug in debugs:
+        if not isinstance(debug, dict):
+            continue
+        p = debug.get("participant")
+        if p:
+            participants.add(str(p))
+    return sorted(participants)
+
+
 def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="confusion_matrix.png"):
     from sklearn.metrics import confusion_matrix
     import seaborn as sns
-
-    cm = confusion_matrix(y_true, y_pred)
 
     def _wrap_label(label, width=14):
         normalized = str(label).replace("+", " + ").replace("_", " ")
@@ -44,8 +56,13 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
         return "\n".join(chunks) if chunks else str(label)
 
     class_names = "auto"
+    cm_labels = None
     if label_map:
-        class_names = [_wrap_label(k) for k, v in sorted(label_map.items(), key=lambda item: item[1])]
+        sorted_items = sorted(label_map.items(), key=lambda item: item[1])
+        class_names = [_wrap_label(k) for k, _ in sorted_items]
+        cm_labels = [v for _, v in sorted_items]
+
+    cm = confusion_matrix(y_true, y_pred, labels=cm_labels)
 
     n_classes = cm.shape[0] if hasattr(cm, "shape") else 2
     fig_w = max(10, min(24, 2.0 + 1.5 * n_classes))
@@ -79,15 +96,15 @@ def save_confusion_matrix(y_true, y_pred, output_dir, label_map=None, filename="
 
 
 def plot_metrics(
-    history,
-    output_dir,
-    model_name=None,
-    training_debugs=None,
-    validation_debugs=None,
-    dataset_name=None,
-    label_map=None,
-    cache_label=None,
-    model_summary=None,
+        history,
+        output_dir,
+        model_name=None,
+        training_debugs=None,
+        validation_debugs=None,
+        dataset_name=None,
+        label_map=None,
+        cache_label=None,
+        model_summary=None,
 ):
     train_losses = history["loss"]
     val_losses = history.get("val_loss", [])
@@ -145,6 +162,9 @@ def plot_metrics(
     train_frames_per_video, _ = _summarize_frames_by_video(training_debugs)
     val_frames_per_video, _ = _summarize_frames_by_video(validation_debugs)
 
+    train_participants = _extract_participants(training_debugs)
+    val_participants = _extract_participants(validation_debugs)
+
     metrics["dataset"] = dataset_name
     metrics["model"] = model_name
     if cache_label is not None:
@@ -155,9 +175,15 @@ def plot_metrics(
         metrics["model_architecture"] = model_summary
     metrics["data_summary"] = {
         "training_videos": int(len(train_frames_per_video)),
+        "training_video_names": sorted(train_frames_per_video.keys()),
         "training_frames_total": int(sum(train_frames_per_video.values())),
+        "training_participants": len(train_participants),
+        "training_participant_ids": train_participants,
         "validation_videos": int(len(val_frames_per_video)),
+        "validation_video_names": sorted(val_frames_per_video.keys()),
         "validation_frames_total": int(sum(val_frames_per_video.values())),
+        "validation_participants": len(val_participants),
+        "validation_participant_ids": val_participants,
     }
 
     metrics_filename = f"{model_name}_training_metrics.json" if model_name else "training_metrics.json"

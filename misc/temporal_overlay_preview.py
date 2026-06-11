@@ -47,7 +47,7 @@ def save_preview_figure(overlay_pack, output_path):
         else:
             _draw_frame(ax, diff_layers[i], f"diff shadow {i}")
 
-    ax_result = fig.add_subplot(gs[2, 1 : n - 1])
+    ax_result = fig.add_subplot(gs[2, 1: n - 1])
     ax_result.imshow(np.clip(encoded, 0.0, 1.0))
     ax_result.set_title("composed result", fontsize=11, fontweight="bold", pad=6)
     ax_result.axis("off")

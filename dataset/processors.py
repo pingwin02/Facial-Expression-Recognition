@@ -27,6 +27,37 @@ TEMPORAL_TINTS = [
 TEMPORAL_ALPHAS = [1.2, 0.9, 0.0, 0.9, 1.2]
 
 
+def _get_temporal_tints_alphas(n_frames):
+    if n_frames == 5:
+        return TEMPORAL_TINTS, TEMPORAL_ALPHAS
+
+    center = n_frames // 2
+    tints = []
+    alphas = []
+    base_colors = [
+        np.array([1.0, 0.1, 0.2], dtype=np.float32),
+        np.array([0.2, 1.0, 0.1], dtype=np.float32),
+        np.array([0.1, 0.6, 1.0], dtype=np.float32),
+        np.array([0.3, 0.1, 1.0], dtype=np.float32),
+        np.array([0.8, 0.8, 0.1], dtype=np.float32),
+        np.array([0.1, 0.9, 0.9], dtype=np.float32),
+    ]
+
+    for i in range(n_frames):
+        if i == center:
+            tints.append(None)
+            alphas.append(0.0)
+        else:
+            color_idx = i % len(base_colors)
+            if i > center:
+                color_idx = (i - 1) % len(base_colors)
+            tints.append(base_colors[color_idx])
+            distance = abs(i - center) / max(1, center)
+            alphas.append(0.9 + 0.3 * distance)
+
+    return tints, alphas
+
+
 def normalize_and_create_mask(landmarks, crop_box, target_size=(IMG_WIDTH, IMG_HEIGHT)):
     x1, y1, x2, y2 = crop_box
     crop_w = x2 - x1
@@ -145,13 +176,13 @@ def _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
 
 
 def _save_iteration_checkpoint(
-    checkpoint_dir,
-    checkpoint_prefix,
-    next_index,
-    X,
-    y,
-    debugs,
-    size_tag=None,
+        checkpoint_dir,
+        checkpoint_prefix,
+        next_index,
+        X,
+        y,
+        debugs,
+        size_tag=None,
 ):
     if not checkpoint_dir or not checkpoint_prefix:
         return None
@@ -202,6 +233,167 @@ def _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None)
     return next_index, X, y, debugs
 
 
+def _disk_store_base_path(storage_dir, storage_prefix, size_tag=None):
+    safe_size_tag = _checkpoint_size_tag(size_tag)
+    return os.path.join(storage_dir, f"{storage_prefix}_{safe_size_tag}")
+
+
+def _disk_store_paths(storage_dir, storage_prefix, size_tag=None):
+    base_path = _disk_store_base_path(storage_dir, storage_prefix, size_tag=size_tag)
+    return {
+        "X": f"{base_path}_X.npy",
+        "y": f"{base_path}_y.npy",
+        "meta": f"{base_path}_meta.pkl",
+        "debugs": f"{base_path}_debugs.pkl",
+    }
+
+
+def _ensure_disk_store_arrays(
+        storage_dir,
+        storage_prefix,
+        max_samples,
+        sample_shape,
+        sample_dtype=np.uint8,
+        label_dtype=np.uint8,
+        size_tag=None,
+):
+    os.makedirs(storage_dir, exist_ok=True)
+    paths = _disk_store_paths(storage_dir, storage_prefix, size_tag=size_tag)
+
+    expected_x_shape = (int(max_samples), *sample_shape)
+    expected_y_shape = (int(max_samples),)
+    sample_dtype = np.dtype(sample_dtype)
+    label_dtype = np.dtype(label_dtype)
+
+    if os.path.exists(paths["X"]):
+        X_store = np.load(paths["X"], mmap_mode="r+")
+        if X_store.shape != expected_x_shape or X_store.dtype != sample_dtype:
+            del X_store
+            os.remove(paths["X"])
+            X_store = np.lib.format.open_memmap(
+                paths["X"],
+                mode="w+",
+                dtype=sample_dtype,
+                shape=expected_x_shape,
+            )
+    else:
+        X_store = np.lib.format.open_memmap(
+            paths["X"],
+            mode="w+",
+            dtype=sample_dtype,
+            shape=expected_x_shape,
+        )
+
+    if os.path.exists(paths["y"]):
+        y_store = np.load(paths["y"], mmap_mode="r+")
+        if y_store.shape != expected_y_shape or y_store.dtype != label_dtype:
+            del y_store
+            os.remove(paths["y"])
+            y_store = np.lib.format.open_memmap(
+                paths["y"],
+                mode="w+",
+                dtype=label_dtype,
+                shape=expected_y_shape,
+            )
+    else:
+        y_store = np.lib.format.open_memmap(
+            paths["y"],
+            mode="w+",
+            dtype=label_dtype,
+            shape=expected_y_shape,
+        )
+
+    return paths, X_store, y_store
+
+
+def _convert_sample_for_storage(sample, target_dtype):
+    target_dtype = np.dtype(target_dtype)
+    if target_dtype == np.uint8:
+        return np.clip(np.rint(np.asarray(sample) * 255.0), 0, 255).astype(np.uint8)
+    return np.asarray(sample, dtype=target_dtype)
+
+
+def _save_disk_store_metadata(
+        storage_dir,
+        storage_prefix,
+        sample_count,
+        max_samples,
+        sample_shape,
+        sample_dtype,
+        label_dtype,
+        size_tag=None,
+):
+    paths = _disk_store_paths(storage_dir, storage_prefix, size_tag=size_tag)
+    payload = {
+        "sample_count": int(sample_count),
+        "max_samples": int(max_samples),
+        "sample_shape": tuple(int(dim) for dim in sample_shape),
+        "sample_dtype": np.dtype(sample_dtype).str,
+        "label_dtype": np.dtype(label_dtype).str,
+    }
+    with open(paths["meta"], "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+    return paths
+
+
+def _save_disk_backed_iteration_checkpoint(
+        checkpoint_dir,
+        checkpoint_prefix,
+        next_index,
+        sample_count,
+        debugs,
+        size_tag=None,
+):
+    if not checkpoint_dir or not checkpoint_prefix:
+        return None
+
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    path = _checkpoint_path(checkpoint_dir, checkpoint_prefix, next_index, size_tag=size_tag)
+    payload = {
+        "next_index": int(next_index),
+        "sample_count": int(sample_count),
+        "debugs": debugs,
+    }
+
+    with open(path, "wb") as f:
+        pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    pattern = _checkpoint_pattern(checkpoint_prefix, size_tag=size_tag)
+    for filename in os.listdir(checkpoint_dir):
+        match = pattern.match(filename)
+        if not match:
+            continue
+        candidate_path = os.path.join(checkpoint_dir, filename)
+        if candidate_path == path:
+            continue
+        try:
+            os.remove(candidate_path)
+        except OSError:
+            pass
+
+    return path
+
+
+def _load_disk_backed_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=None):
+    latest_path = _find_latest_checkpoint(checkpoint_dir, checkpoint_prefix, size_tag=size_tag)
+    if latest_path is None:
+        return 0, 0, []
+
+    with open(latest_path, "rb") as f:
+        payload = pickle.load(f)
+
+    next_index = int(payload.get("next_index", 0))
+    sample_count = int(payload.get("sample_count", 0))
+    debugs = payload.get("debugs", [])
+
+    print(
+        f"Resuming from checkpoint: {latest_path} "
+        f"(next_index={next_index}, samples={sample_count})"
+    )
+
+    return next_index, sample_count, debugs
+
+
 def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix, size_tag=None):
     if not checkpoint_dir or not checkpoint_prefix:
         return
@@ -226,20 +418,85 @@ def cleanup_iteration_checkpoints(checkpoint_dir, checkpoint_prefix, size_tag=No
 
 
 def process_video_frames_with_frame_labels(
-    df,
-    video_dir,
-    filename_col,
-    label_map,
-    frames_per_video=100,
-    checkpoint_dir=None,
-    checkpoint_prefix=None,
-    save_checkpoint_every=1,
-    resume_from_checkpoint=True,
+        df,
+        video_dir,
+        filename_col,
+        label_map,
+        frames_per_video=100,
+        checkpoint_dir=None,
+        checkpoint_prefix=None,
+        save_checkpoint_every=1,
+        resume_from_checkpoint=True,
+        disk_output_dir=None,
+        disk_output_prefix=None,
+        max_samples=None,
+        storage_dtype=np.uint8,
+        label_dtype=np.uint8,
 ):
-    if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+    use_disk_backed_storage = (
+            disk_output_dir is not None and disk_output_prefix is not None and max_samples is not None
+    )
+    checkpoint_stride = max(1, int(save_checkpoint_every))
+
+    if use_disk_backed_storage:
+        max_samples = max(1, int(max_samples))
+        if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
+            start_index, sample_count, debugs = _load_disk_backed_iteration_checkpoint(
+                checkpoint_dir,
+                checkpoint_prefix,
+            )
+        else:
+            start_index, sample_count, debugs = 0, 0, []
+
+        reset_disk_storage = start_index == 0 and sample_count == 0
+        storage_paths = _disk_store_paths(disk_output_dir, disk_output_prefix)
+        if not reset_disk_storage and (
+                not os.path.exists(storage_paths["X"]) or not os.path.exists(storage_paths["y"])
+        ):
+            print("Checkpoint found without disk artifacts; restarting this split from scratch.")
+            start_index, sample_count, debugs = 0, 0, []
+            reset_disk_storage = True
+
+        if reset_disk_storage:
+            for path in storage_paths.values():
+                if os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+
+        storage_paths, X_store, y_store = _ensure_disk_store_arrays(
+            disk_output_dir,
+            disk_output_prefix,
+            max_samples,
+            sample_shape=(IMG_HEIGHT, IMG_WIDTH, 4),
+            sample_dtype=storage_dtype,
+            label_dtype=label_dtype,
+        )
+        X, y = None, None
+    elif resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
     else:
         start_index, X, y, debugs = 0, [], [], []
+
+    def maybe_save_progress(next_index):
+        if not checkpoint_dir or not checkpoint_prefix:
+            return
+        if next_index % checkpoint_stride != 0:
+            return
+
+        if use_disk_backed_storage:
+            X_store.flush()
+            y_store.flush()
+            _save_disk_backed_iteration_checkpoint(
+                checkpoint_dir,
+                checkpoint_prefix,
+                next_index,
+                sample_count,
+                debugs,
+            )
+        else:
+            _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, next_index, X, y, debugs)
 
     detector_pack = get_dlib_detector_predictor()
     detector, _ = detector_pack
@@ -256,22 +513,19 @@ def process_video_frames_with_frame_labels(
         arousal_seq = row.get("full_arousal_sequence", [])
         valence_seq = row.get("full_valence_sequence", [])
         if arousal_seq is None or valence_seq is None:
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            maybe_save_progress(row_idx + 1)
             continue
 
         arousal_seq = list(arousal_seq)
         valence_seq = list(valence_seq)
         sequence_length = min(len(arousal_seq), len(valence_seq))
         if sequence_length <= 0:
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            maybe_save_progress(row_idx + 1)
             continue
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
-            if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-                _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+            maybe_save_progress(row_idx + 1)
             continue
 
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -356,25 +610,57 @@ def process_video_frames_with_frame_labels(
                 "landmarks": landmarks,
             }
 
-            X.append(combined_img)
-            y.append(label)
+            if use_disk_backed_storage:
+                if sample_count >= max_samples:
+                    raise RuntimeError(
+                        f"Disk-backed storage overflow for '{disk_output_prefix}': "
+                        f"sample_count={sample_count}, max_samples={max_samples}."
+                    )
+                X_store[sample_count] = _convert_sample_for_storage(combined_img, storage_dtype)
+                y_store[sample_count] = label
+                sample_count += 1
+            else:
+                X.append(combined_img)
+                y.append(label)
             debugs.append(sample_debug)
 
         cap.release()
 
-        if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
-            _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
+        maybe_save_progress(row_idx + 1)
+
+    if use_disk_backed_storage:
+        X_store.flush()
+        y_store.flush()
+        del X_store
+        del y_store
+
+        _save_disk_store_metadata(
+            disk_output_dir,
+            disk_output_prefix,
+            sample_count=sample_count,
+            max_samples=max_samples,
+            sample_shape=(IMG_HEIGHT, IMG_WIDTH, 4),
+            sample_dtype=storage_dtype,
+            label_dtype=label_dtype,
+        )
+
+        with open(storage_paths["debugs"], "wb") as f:
+            pickle.dump(debugs, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+        X_disk = np.load(storage_paths["X"], mmap_mode="r")[:sample_count]
+        y_disk = np.load(storage_paths["y"], mmap_mode="r")[:sample_count]
+        return X_disk, y_disk, debugs
 
     return np.array(X), np.array(y), debugs
 
 
 def process_image_directory(
-    directory,
-    label_map,
-    checkpoint_dir=None,
-    checkpoint_prefix=None,
-    save_checkpoint_every=100,
-    resume_from_checkpoint=True,
+        directory,
+        label_map,
+        checkpoint_dir=None,
+        checkpoint_prefix=None,
+        save_checkpoint_every=100,
+        resume_from_checkpoint=True,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -436,7 +722,7 @@ def process_image_directory(
 def _try_detect_face_at(cap, frame_idx, detector_pack):
     cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
     ret, frame = cap.read()
-    if not ret:
+    if not ret or np.var(frame) < 10.0:
         return None
     face, crop_box, _ = detect_and_crop_face(frame, *detector_pack)
     if face is None or face.ndim != 3 or face.shape[-1] < 3 or crop_box is None:
@@ -447,7 +733,7 @@ def _try_detect_face_at(cap, frame_idx, detector_pack):
 def _read_raw_frame(cap, frame_idx):
     cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
     ret, frame = cap.read()
-    if not ret:
+    if not ret or np.var(frame) < 10.0:
         return None
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     resized = cv2.resize(frame_rgb, (IMG_WIDTH, IMG_HEIGHT), interpolation=cv2.INTER_AREA)
@@ -471,7 +757,6 @@ def _get_vit():
 
 
 def _transformer_select_frames(cap, candidate_indices, num_select):
-    """Use pre-trained ViT to extract features, then score frames by attention for selection."""
     import torch
 
     frames_rgb = []
@@ -492,18 +777,20 @@ def _transformer_select_frames(cap, candidate_indices, num_select):
     inputs = processor(images=frames_rgb, return_tensors="pt")
     with torch.no_grad():
         out = model(**inputs)
-    cls_features = out.last_hidden_state[:, 0, :]  # (N, 768)
+    cls_features = out.last_hidden_state[:, 0, :]
 
-    # self-attention score: how much each frame attends to all others
-    sim = torch.matmul(cls_features, cls_features.T)  # (N, N)
-    scores = sim.mean(dim=1).numpy()  # (N,)
+    sim = torch.matmul(cls_features, cls_features.T)
+    scores = sim.mean(dim=1).numpy()
 
     top_k = np.argsort(scores)[-num_select:]
     top_k_sorted = sorted(top_k)
     return [valid_indices[i] for i in top_k_sorted]
 
 
-def _sample_faces_from_video(video_path, detector_pack, use_transformer_selection=False):
+def _sample_faces_from_video(
+        video_path, detector_pack, use_transformer_selection=False, use_random_selection=False,
+        use_manual_selection=False
+):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return None, None
@@ -513,18 +800,63 @@ def _sample_faces_from_video(video_path, detector_pack, use_transformer_selectio
         if total_frames <= 0:
             return None, None
 
-        if use_transformer_selection:
+        safe_start = min(5, total_frames - 1) if total_frames > 10 else 0
+        safe_end = max(safe_start, total_frames - 2)
+
+        if use_manual_selection:
+            from dataset.manual_frame_selector import manual_select_frames
+
+            if use_transformer_selection:
+                auto_fill_method = "transformer"
+            elif use_random_selection:
+                auto_fill_method = "random"
+            else:
+                auto_fill_method = "uniform"
+
+            manual_indices = manual_select_frames(video_path, NUM_SAMPLE_FRAMES, auto_fill_method=auto_fill_method)
+            if manual_indices is not None and len(manual_indices) == NUM_SAMPLE_FRAMES:
+                sample_indices = manual_indices
+            else:
+                already_selected = manual_indices if manual_indices else []
+                remaining = NUM_SAMPLE_FRAMES - len(already_selected)
+                if use_transformer_selection and remaining > 0:
+                    n_candidates = min(total_frames, max(remaining * 6, 30))
+                    candidate_indices = [
+                        int(i)
+                        for i in np.linspace(safe_start, safe_end, n_candidates, dtype=int)
+                        if int(i) not in already_selected
+                    ]
+                    auto_indices = _transformer_select_frames(cap, candidate_indices, remaining)
+                elif use_random_selection and remaining > 0:
+                    available = [i for i in range(total_frames) if i not in already_selected]
+                    auto_indices = sorted(
+                        np.random.choice(available, size=min(remaining, len(available)), replace=False).tolist()
+                    )
+                else:
+                    available = [i for i in range(total_frames) if i not in already_selected]
+                    auto_indices = np.linspace(safe_start, max(safe_start, len(available) - 1), remaining,
+                                               dtype=int).tolist()
+                    auto_indices = [available[i] for i in auto_indices]
+                sample_indices = sorted(list(already_selected) + auto_indices)[:NUM_SAMPLE_FRAMES]
+        elif use_transformer_selection:
             n_candidates = min(total_frames, max(NUM_SAMPLE_FRAMES * 6, 30))
-            candidate_indices = np.linspace(0, max(0, total_frames - 2), n_candidates, dtype=int).tolist()
+            candidate_indices = np.linspace(safe_start, safe_end, n_candidates, dtype=int).tolist()
             sample_indices = _transformer_select_frames(cap, candidate_indices, NUM_SAMPLE_FRAMES)
             if len(sample_indices) < NUM_SAMPLE_FRAMES:
-                sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+                sample_indices = np.linspace(safe_start, safe_end, NUM_SAMPLE_FRAMES, dtype=int).tolist()
+        elif use_random_selection:
+            sample_indices = sorted(
+                np.random.choice(
+                    range(safe_start, total_frames), size=min(NUM_SAMPLE_FRAMES, total_frames - safe_start),
+                    replace=False
+                ).tolist()
+            )
         else:
-            sample_indices = np.linspace(0, max(0, total_frames - 2), NUM_SAMPLE_FRAMES, dtype=int).tolist()
+            sample_indices = np.linspace(safe_start, safe_end, NUM_SAMPLE_FRAMES, dtype=int).tolist()
 
         sampled_faces = [_try_detect_face_at(cap, idx, detector_pack) for idx in sample_indices]
 
-        if any(f is None for f in sampled_faces):
+        if all(f is None for f in sampled_faces):
             sampled_faces = [_read_raw_frame(cap, idx) for idx in sample_indices]
 
         fallback = None
@@ -549,11 +881,15 @@ def _to_grayscale_rgb(face_rgb):
 
 
 def _compose_temporal_chromatic(sampled_faces, include_preview=False):
-    center_face = sampled_faces[CENTER_IDX]
+    n_frames = len(sampled_faces)
+    center_idx = n_frames // 2
+    tints, alphas = _get_temporal_tints_alphas(n_frames)
+
+    center_face = sampled_faces[center_idx]
     if center_face is None:
-        for offset in range(1, NUM_SAMPLE_FRAMES):
-            for candidate in [CENTER_IDX - offset, CENTER_IDX + offset]:
-                if 0 <= candidate < NUM_SAMPLE_FRAMES and sampled_faces[candidate] is not None:
+        for offset in range(1, n_frames):
+            for candidate in [center_idx - offset, center_idx + offset]:
+                if 0 <= candidate < n_frames and sampled_faces[candidate] is not None:
                     center_face = sampled_faces[candidate]
                     break
             if center_face is not None:
@@ -566,18 +902,18 @@ def _compose_temporal_chromatic(sampled_faces, include_preview=False):
 
     diff_layers = None
     if include_preview:
-        diff_layers = [None] * NUM_SAMPLE_FRAMES
-        diff_layers[CENTER_IDX] = base_gray.copy()
+        diff_layers = [None] * n_frames
+        diff_layers[center_idx] = base_gray.copy()
 
-    for i in range(NUM_SAMPLE_FRAMES):
-        if TEMPORAL_TINTS[i] is None:
+    for i in range(n_frames):
+        if tints[i] is None:
             continue
         frame = sampled_faces[i]
         if frame is None:
             continue
 
-        color = TEMPORAL_TINTS[i]
-        alpha = TEMPORAL_ALPHAS[i]
+        color = tints[i]
+        alpha = alphas[i]
 
         diff = np.abs(frame - center_face)
         diff_magnitude = np.mean(diff, axis=-1, keepdims=True)
@@ -616,15 +952,17 @@ def temporal_encoding_preview_from_video(video_path):
 
 
 def process_video_temporal_encoding(
-    df,
-    video_dir,
-    filename_col,
-    label_map,
-    checkpoint_dir=None,
-    checkpoint_prefix=None,
-    save_checkpoint_every=1,
-    resume_from_checkpoint=True,
-    use_transformer_selection=False,
+        df,
+        video_dir,
+        filename_col,
+        label_map,
+        checkpoint_dir=None,
+        checkpoint_prefix=None,
+        save_checkpoint_every=1,
+        resume_from_checkpoint=True,
+        use_transformer_selection=False,
+        use_random_selection=False,
+        use_manual_selection=False,
 ):
     if resume_from_checkpoint and checkpoint_dir and checkpoint_prefix:
         start_index, X, y, debugs = _load_iteration_checkpoint(checkpoint_dir, checkpoint_prefix)
@@ -633,10 +971,8 @@ def process_video_temporal_encoding(
 
     detector_pack = get_dlib_detector_predictor()
 
-    first_run = True
-
     for row_idx, (_, row) in enumerate(
-        tqdm(df.iterrows(), desc="Processing videos (temporal encoding)", total=len(df), unit="video")
+            tqdm(df.iterrows(), desc="Processing videos (temporal encoding)", total=len(df), unit="video")
     ):
         if row_idx < start_index:
             continue
@@ -645,7 +981,9 @@ def process_video_temporal_encoding(
         video_path = os.path.join(video_dir, video_name)
         label = row["label"] if label_map is None else label_map.get(row["label"], 0)
 
-        sample_indices, sampled_faces = _sample_faces_from_video(video_path, detector_pack, use_transformer_selection)
+        sample_indices, sampled_faces = _sample_faces_from_video(
+            video_path, detector_pack, use_transformer_selection, use_random_selection, use_manual_selection
+        )
         if sample_indices is None:
             if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
@@ -657,18 +995,18 @@ def process_video_temporal_encoding(
                 _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
             continue
 
-        if first_run:
-            print(f"\nTemporal encoding shape: {result.shape}")
-            first_run = False
-
         X.append(result)
         y.append(label)
-        debugs.append(
-            {
-                "video": video_name,
-                "sample_indices": sample_indices,
-            }
-        )
+
+        debug_entry = {
+            "video": video_name,
+            "sample_indices": sample_indices,
+        }
+        for pcol in ("participant", "id_examined", "_participant"):
+            if pcol in row.index:
+                debug_entry["participant"] = str(row[pcol])
+                break
+        debugs.append(debug_entry)
 
         if checkpoint_dir and checkpoint_prefix and ((row_idx + 1) % max(1, int(save_checkpoint_every)) == 0):
             _save_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, row_idx + 1, X, y, debugs)
