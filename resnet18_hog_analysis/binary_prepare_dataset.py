@@ -4,7 +4,6 @@ import json
 import numpy as np
 from PIL import Image
 
-# Nowe importy dla zaawansowanych strategii
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances_argmin
 import torch
