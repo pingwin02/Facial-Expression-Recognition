@@ -16,11 +16,6 @@ DEVEMO_PLUS_JSON = os.path.join(DEVEMO_PLUS_DIR, "devemo+.json")
 
 OUTPUT_DIR = "output"
 
-
-###############################################################################
-# --------------------------- UTILS & LABELS ---------------------------
-###############################################################################
-
 def ensure_dir(path):
     if not os.path.exists(path):
         os.makedirs(path)
@@ -59,7 +54,7 @@ def read_video_frames(path, max_frames=200):
     cap = cv2.VideoCapture(path)
     fps = cap.get(cv2.CAP_PROP_FPS)
     if fps == 0 or np.isnan(fps):
-        fps = 25.0  # Fallback jeśli plik wideo nie poda poprawnego FPS
+        fps = 25.0
 
     frames = []
     count = 0
@@ -73,11 +68,6 @@ def read_video_frames(path, max_frames=200):
             break
     cap.release()
     return frames, fps
-
-
-###############################################################################
-# ------------------- ZAAWANSOWANE METODY (FEATURE EXTRACTORS) --------------
-###############################################################################
 
 DEEP_FEATURE_EXTRACTOR = None
 DEEP_TRANSFORM = None
@@ -104,11 +94,6 @@ def get_deep_features(frames):
             feat = DEEP_FEATURE_EXTRACTOR(t).squeeze().numpy()
             features.append(feat)
     return np.array(features)
-
-
-###############################################################################
-# ------------------------- FRAME SELECTION STRATEGIES -----------------------
-###############################################################################
 
 def select_frames(frames, n_frames, strategy="uniform"):
     total = len(frames)
@@ -179,11 +164,6 @@ def select_frames(frames, n_frames, strategy="uniform"):
     idxs = idxs[:n_frames]
     return [frames[i] for i in idxs], idxs
 
-
-###############################################################################
-# ------------ TEMPORAL CHROMATIC OVERLAY & TIMELINE -----------------------
-###############################################################################
-
 def _get_temporal_tints_alphas(n_frames):
     if n_frames == 5:
         return [
@@ -253,14 +233,9 @@ def method_temporal_chromatic(sel_frames):
 
 
 def add_timeline(img_rgb, selected_idxs, total_frames, fps):
-    """
-    Dodaje oś czasu na dole obrazka.
-    Znaczniki przyjmują barwy nałożonych na obraz poświat.
-    """
     h, w, c = img_rgb.shape
     timeline_h = 60
 
-    # Tworzymy powiększone płótno (z ciemnoszarym tłem na dole)
     new_img = np.zeros((h + timeline_h, w, c), dtype=np.uint8)
     new_img[:h, :] = img_rgb
     new_img[h:, :] = (30, 30, 30)  # rgb dla tła osi czasu
@@ -268,34 +243,26 @@ def add_timeline(img_rgb, selected_idxs, total_frames, fps):
     margin = max(40, w // 10)
     line_y = h + 20
 
-    # Główna linia osi czasu
     cv2.line(new_img, (margin, line_y), (w - margin, line_y), (150, 150, 150), 2)
 
-    # Pobieramy kolory, które zostały przypisane w metodzie chromatograficznej
     tints, _ = _get_temporal_tints_alphas(len(selected_idxs))
 
     for i, frame_idx in enumerate(selected_idxs):
-        # Proporcjonalna pozycja na osi X
         ratio = frame_idx / max(1, total_frames - 1)
         x = margin + int(ratio * (w - 2 * margin))
-
-        # Dobieramy kolor dla ticka osi (zgodny z tintsem lub biały dla środkowej klatki)
         if tints[i] is None:
             color = (255, 255, 255)
         else:
             color = (tints[i] * 255).astype(int).tolist()
 
-        # Rysujemy znacznik (tick)
         cv2.line(new_img, (x, line_y - 8), (x, line_y + 8), color, 3)
 
-        # Obliczamy i rysujemy czas (w sekundach)
         t_sec = frame_idx / fps if fps > 0 else 0.0
         text = f"{t_sec:.1f}s"
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.4
         thickness = 1
 
-        # Wyśrodkowanie tekstu względem znacznika
         text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
         text_x = x - text_size[0] // 2
         text_y = line_y + 25
@@ -304,10 +271,6 @@ def add_timeline(img_rgb, selected_idxs, total_frames, fps):
 
     return new_img
 
-
-###############################################################################
-# ------------------------------- MAIN PIPELINE -------------------------------
-###############################################################################
 
 def process_video(path, label, output_root):
     frames, fps = read_video_frames(path)
@@ -338,10 +301,8 @@ def process_video(path, label, output_root):
                 img = method_temporal_chromatic(selected_frames)
 
                 if img is not None:
-                    # Dodanie osi czasu do wygenerowanego obrazu
                     img_with_timeline = add_timeline(img, selected_idxs, total_frames, fps)
 
-                    # Zapisanie ostatecznego wyniku
                     Image.fromarray(img_with_timeline).save(
                         os.path.join(out_dir, os.path.basename(path) + ".png")
                     )

@@ -20,23 +20,16 @@ from facenet_pytorch import MTCNN
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix  # DODANO: confusion_matrix
 
-# ----------------------------
-# KONFIGURACJA
-# ----------------------------
 DATASET_DIR = "devemo"
 SEQ_LEN = 8
-IMG_SIZE = 64  # Zmniejszono do 64x64. Przy 224x224 wektory HOG z 8 klatek byłyby gigantyczne!
+IMG_SIZE = 64
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Inicjalizacja MTCNN
 mtcnn = MTCNN(image_size=IMG_SIZE, margin=20, post_process=False, device=device)
 
 
-# ----------------------------
-# KLASA HOG MODEL
-# ----------------------------
 class HogModel:
-    def __init__(self, input_shape, num_classes=2):  # Zmiana domyślnego na 2 klasy wg parsowania
+    def __init__(self, input_shape, num_classes=2):
         inputs = layers.Input(shape=input_shape, name="hog_features")
 
         x = layers.Dense(512, activation="relu")(inputs)
@@ -61,7 +54,6 @@ class HogModel:
         for video in frames_batch:
             frame_hogs = []
             for frame in video:
-                # Konwersja do skali szarości lub wzięcie pierwszego kanału
                 if len(frame.shape) == 3 and frame.shape[-1] == 3:
                     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
                 else:
@@ -180,9 +172,6 @@ class HogModel:
         return np.argmax(self.model.predict(hog_vecs), axis=1)
 
 
-# ----------------------------
-# POMOCNICZE FUNKCJE WIDEO
-# ----------------------------
 def parse_label(path):
     p = path.lower()
     if any(x in p for x in ["confusion", "surprise", "angry"]):
@@ -212,7 +201,6 @@ def extract_frames(video_path):
 
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-        # Konwersja dla MTCNN (oczekuje PIL lub numpy array)
         from PIL import Image
         frame_pil = Image.fromarray(frame)
         face = mtcnn(frame_pil)
@@ -220,13 +208,11 @@ def extract_frames(video_path):
         if face is None:
             continue
 
-        # Zamiast trzymać w Pytorch, konwertujemy z powrotem na numpy array (H, W, 3) dla skimage/Keras
         face_np = face.permute(1, 2, 0).byte().cpu().numpy()
         frames.append(face_np)
 
     cap.release()
 
-    # Padding na wypadek braku wykrycia twarzy (zastępczy czarny obraz)
     if len(frames) == 0:
         return [np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8)] * SEQ_LEN
 
@@ -256,17 +242,12 @@ def load_dataset():
     for path, label in zip(paths, labels):
         frames = extract_frames(path)
         if len(frames) == SEQ_LEN:
-            X.append(np.array(frames))  # Shape: (SEQ_LEN, H, W, 3)
+            X.append(np.array(frames))
             Y.append(label)
 
     return np.array(X), np.array(Y)
 
-
-# ----------------------------
-# MAIN
-# ----------------------------
 def main():
-    # 1. Wczytanie i przygotowanie danych do pamięci RAM jako numpy arrays
     X_data, y_data = load_dataset()
 
     if len(X_data) == 0:
@@ -275,13 +256,11 @@ def main():
 
     print(f"\nZebrano dane. Kształt X: {X_data.shape}, Kształt y: {y_data.shape}")
 
-    # 2. Podział na zbiory
     X_train, X_test, y_train, y_test = train_test_split(
         X_data, y_data, test_size=0.2, stratify=y_data, random_state=42
     )
     print(f"Zbiór treningowy: {len(X_train)} próbek. Zbiór testowy: {len(X_test)} próbek.")
 
-    # 3. Trening HogModel
     print("\n--- Rozpoczynanie treningu HogModel ---")
     output_directory = "hog_output"
 
@@ -295,7 +274,6 @@ def main():
         epochs=100
     )
 
-    # 4. Ewaluacja i Testowanie
     print("\n--- Rozpoczęto testowanie na zbiorze walidacyjnym ---")
     predictions = trained_model.predict(X_test)
 
@@ -305,13 +283,10 @@ def main():
     print("\nRaport Klasyfikacji:")
     print(classification_report(y_test, predictions))
 
-    # 5. Generowanie Wykresów i Macierzy Konfuzji
     print("\nGenerowanie wizualizacji...")
 
-    # 5a. Wykresy Historii Treningu (Accuracy i Loss)
     plt.figure(figsize=(12, 5))
 
-    # Wykres Accuracy
     plt.subplot(1, 2, 1)
     plt.plot(history['accuracy'], label='Train Accuracy')
     plt.plot(history['val_accuracy'], label='Validation Accuracy')
@@ -320,7 +295,6 @@ def main():
     plt.ylabel('Accuracy')
     plt.legend()
 
-    # Wykres Loss
     plt.subplot(1, 2, 2)
     plt.plot(history['loss'], label='Train Loss')
     plt.plot(history['val_loss'], label='Validation Loss')
@@ -333,7 +307,6 @@ def main():
     plt.savefig(os.path.join(output_directory, "training_history.png"))
     plt.close()
 
-    # 5b. Macierz Konfuzji
     cm = confusion_matrix(y_test, predictions)
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
