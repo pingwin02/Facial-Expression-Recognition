@@ -1,7 +1,6 @@
+import numpy as np
 import os
 import pickle
-
-import numpy as np
 
 from dataset.sources.registry import get_dataset_source
 from dataset.utils import print_stats
@@ -26,10 +25,7 @@ def build_cache_version(
     resolved_num_frames = max(1, int(num_frames))
 
     if input_flag == "veatic":
-        return (
-            f"{CACHE_VERSION}"
-            f"__nf-{resolved_num_frames}"
-        )
+        return f"{CACHE_VERSION}" f"__nf-{resolved_num_frames}"
 
     if input_flag not in ("devemo", "devemo+", "devemo_combined"):
         return CACHE_VERSION

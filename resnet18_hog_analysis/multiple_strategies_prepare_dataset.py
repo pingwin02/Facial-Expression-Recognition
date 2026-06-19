@@ -1,12 +1,11 @@
-import os
 import cv2
 import json
 import numpy as np
+import os
+import torch
 from PIL import Image
-
 from sklearn.cluster import KMeans
 from sklearn.metrics import pairwise_distances_argmin
-import torch
 from torchvision import models, transforms
 
 DEVEMO_DIR = "devemo"
@@ -14,6 +13,7 @@ DEVEMO_PLUS_DIR = "devemo+"
 DEVEMO_PLUS_JSON = os.path.join(DEVEMO_PLUS_DIR, "devemo+.json")
 
 OUTPUT_DIR = "output"
+
 
 def ensure_dir(path):
     if not os.path.exists(path):
@@ -29,7 +29,7 @@ def map_to_multiclass(label):
         "disgust": ["disgust", "wstręt"],
         "surprise": ["surprise", "zaskoczenie"],
         "happiness": ["happiness", "radość"],
-        "neutral": ["neutral", "neutralna"]
+        "neutral": ["neutral", "neutralna"],
     }
 
     for emotion_class, keywords in emotions_mapping.items():
@@ -86,12 +86,14 @@ def get_deep_features(frames):
         DEEP_FEATURE_EXTRACTOR = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
         DEEP_FEATURE_EXTRACTOR.fc = torch.nn.Identity()
         DEEP_FEATURE_EXTRACTOR.eval()
-        DEEP_TRANSFORM = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
+        DEEP_TRANSFORM = transforms.Compose(
+            [
+                transforms.ToPILImage(),
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
 
     features = []
     with torch.no_grad():
@@ -171,6 +173,7 @@ def select_frames(frames, n_frames, strategy="uniform"):
     idxs = idxs[:n_frames]
     return [frames[i] for i in idxs], idxs
 
+
 def _get_temporal_tints_alphas(n_frames):
     if n_frames == 5:
         return [
@@ -245,7 +248,7 @@ def add_timeline(img_rgb, selected_idxs, total_frames, fps):
 
     new_img = np.zeros((h + timeline_h, w, c), dtype=np.uint8)
     new_img[:h, :] = img_rgb
-    new_img[h:, :] = (30, 30, 30)  # rgb dla tła osi czasu
+    new_img[h:, :] = (30, 30, 30)
 
     margin = max(40, w // 10)
     line_y = h + 20
@@ -279,6 +282,7 @@ def add_timeline(img_rgb, selected_idxs, total_frames, fps):
 
     return new_img
 
+
 def process_video(path, label, output_root):
     frames, fps = read_video_frames(path)
     total_frames = len(frames)
@@ -295,7 +299,7 @@ def process_video(path, label, output_root):
         "sharpest",
         "hog_diff",
         "kmeans_rgb",
-        "resnet_kmeans"
+        "resnet_kmeans",
     ]
 
     for n in [3, 4, 5]:
@@ -310,9 +314,7 @@ def process_video(path, label, output_root):
                 if img is not None:
                     img_with_timeline = add_timeline(img, selected_idxs, total_frames, fps)
 
-                    Image.fromarray(img_with_timeline).save(
-                        os.path.join(out_dir, os.path.basename(path) + ".png")
-                    )
+                    Image.fromarray(img_with_timeline).save(os.path.join(out_dir, os.path.basename(path) + ".png"))
             except Exception as e:
                 print(f"[BŁĄD] Nie udało się przetworzyć strategii {strategy} dla wideo {path}. Błąd: {e}")
 

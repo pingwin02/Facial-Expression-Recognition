@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import matplotlib.pyplot as plt
+import numpy as np
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-
-import matplotlib.pyplot as plt
-import numpy as np
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = ROOT_DIR / "output"

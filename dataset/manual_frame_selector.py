@@ -1,13 +1,12 @@
+import cv2
 import hashlib
 import json
 import math
+import numpy as np
 import os
 import shutil
 import sys
 from dataclasses import dataclass
-
-import cv2
-import numpy as np
 
 try:
     import tkinter as tk

@@ -386,10 +386,7 @@ def _load_disk_backed_iteration_checkpoint(checkpoint_dir, checkpoint_prefix, si
     sample_count = int(payload.get("sample_count", 0))
     debugs = payload.get("debugs", [])
 
-    print(
-        f"Resuming from checkpoint: {latest_path} "
-        f"(next_index={next_index}, samples={sample_count})"
-    )
+    print(f"Resuming from checkpoint: {latest_path} " f"(next_index={next_index}, samples={sample_count})")
 
     return next_index, sample_count, debugs
 
@@ -433,9 +430,7 @@ def process_video_frames_with_frame_labels(
         storage_dtype=np.uint8,
         label_dtype=np.uint8,
 ):
-    use_disk_backed_storage = (
-            disk_output_dir is not None and disk_output_prefix is not None and max_samples is not None
-    )
+    use_disk_backed_storage = disk_output_dir is not None and disk_output_prefix is not None and max_samples is not None
     checkpoint_stride = max(1, int(save_checkpoint_every))
 
     if use_disk_backed_storage:
@@ -834,8 +829,9 @@ def _sample_faces_from_video(
                     )
                 else:
                     available = [i for i in range(total_frames) if i not in already_selected]
-                    auto_indices = np.linspace(safe_start, max(safe_start, len(available) - 1), remaining,
-                                               dtype=int).tolist()
+                    auto_indices = np.linspace(
+                        safe_start, max(safe_start, len(available) - 1), remaining, dtype=int
+                    ).tolist()
                     auto_indices = [available[i] for i in auto_indices]
                 sample_indices = sorted(list(already_selected) + auto_indices)[:NUM_SAMPLE_FRAMES]
         elif use_transformer_selection:
@@ -847,8 +843,9 @@ def _sample_faces_from_video(
         elif use_random_selection:
             sample_indices = sorted(
                 np.random.choice(
-                    range(safe_start, total_frames), size=min(NUM_SAMPLE_FRAMES, total_frames - safe_start),
-                    replace=False
+                    range(safe_start, total_frames),
+                    size=min(NUM_SAMPLE_FRAMES, total_frames - safe_start),
+                    replace=False,
                 ).tolist()
             )
         else:

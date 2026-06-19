@@ -1,8 +1,7 @@
 import json
 import os
-import re
-
 import pandas as pd
+import re
 
 from dataset.processors import cleanup_iteration_checkpoints
 from dataset.processors import process_video_temporal_encoding

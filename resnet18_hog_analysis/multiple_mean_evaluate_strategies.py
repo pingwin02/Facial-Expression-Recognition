@@ -1,18 +1,15 @@
-import os
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.image import show_cam_on_image
-
+import numpy as np
+import os
+import pandas as pd
+import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms, models
-
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.utils.image import show_cam_on_image
 from sklearn.metrics import confusion_matrix, accuracy_score
-import seaborn as sns
+from torchvision import datasets, transforms, models
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -22,10 +19,7 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 
 CLASSES = ["negative", "other"]
 
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor()
-])
+transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
 
 
 def load_dataset(data_path):
@@ -41,6 +35,7 @@ def load_dataset(data_path):
     test_size = len(dataset) - train_size - val_size
 
     return torch.utils.data.random_split(dataset, [train_size, val_size, test_size])
+
 
 def get_cnn():
     model = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
@@ -128,7 +123,7 @@ def plot_combined_mean_confusion(strategy_name, cms_dict):
     if num_plots == 1:
         axes = [axes]
 
-    fig.suptitle(f'Mean Confusion Matrix - Strategia: {strategy_name}', fontsize=18, y=1.05)
+    fig.suptitle(f"Mean Confusion Matrix - Strategia: {strategy_name}", fontsize=18, y=1.05)
     annot_font_size = 10 if len(CLASSES) > 4 else 12
 
     for ax, key in zip(axes, sorted_keys):
@@ -136,28 +131,38 @@ def plot_combined_mean_confusion(strategy_name, cms_dict):
 
         cm_norm = cm_sum / (cm_sum.sum(axis=1, keepdims=True) + 1e-9)
 
-        sns.heatmap(cm_norm, annot=True, fmt=".2f", cmap='Blues',
-                    vmin=0.0, vmax=1.0, cbar=False, ax=ax,
-                    xticklabels=CLASSES, yticklabels=CLASSES,
-                    square=True, annot_kws={"size": annot_font_size})
+        sns.heatmap(
+            cm_norm,
+            annot=True,
+            fmt=".2f",
+            cmap="Blues",
+            vmin=0.0,
+            vmax=1.0,
+            cbar=False,
+            ax=ax,
+            xticklabels=CLASSES,
+            yticklabels=CLASSES,
+            square=True,
+            annot_kws={"size": annot_font_size},
+        )
 
         ax.set_title(f"Konfiguracja: {key}", fontsize=14, pad=15)
-        ax.set_xlabel('Przewidywana klasa', fontsize=12)
-        ax.tick_params(axis='x', rotation=45)
+        ax.set_xlabel("Przewidywana klasa", fontsize=12)
+        ax.tick_params(axis="x", rotation=45)
 
         if ax == axes[0]:
-            ax.set_ylabel('Rzeczywista klasa', fontsize=12)
-            ax.tick_params(axis='y', rotation=0)
+            ax.set_ylabel("Rzeczywista klasa", fontsize=12)
+            ax.tick_params(axis="y", rotation=0)
 
     plt.subplots_adjust(right=0.9, bottom=0.2)
     cbar_ax = fig.add_axes([0.92, 0.2, 0.02, 0.7])
-    sm = plt.cm.ScalarMappable(cmap='Blues', norm=plt.Normalize(vmin=0, vmax=1))
+    sm = plt.cm.ScalarMappable(cmap="Blues", norm=plt.Normalize(vmin=0, vmax=1))
     sm.set_array([])
 
     cbar = fig.colorbar(sm, cax=cbar_ax)
     cbar.ax.tick_params(labelsize=11)
 
-    plt.savefig(f"{RESULTS_DIR}/mean_cm_{strategy_name}_combined.png", dpi=300, bbox_inches='tight')
+    plt.savefig(f"{RESULTS_DIR}/mean_cm_{strategy_name}_combined.png", dpi=300, bbox_inches="tight")
     plt.close()
 
 
@@ -276,10 +281,7 @@ def run_for_strategy(strategy_name, run_idx=None):
         save_examples(test_ds, model, safe_name, model_name)
         save_gradcam_examples(test_ds, model, safe_name, model_name)
 
-        results[frame_dir] = {
-            "acc": acc,
-            "cm": cm
-        }
+        results[frame_dir] = {"acc": acc, "cm": cm}
 
     return results
 
@@ -334,8 +336,15 @@ def run_multiple_times(strategy_name="edges", num_runs=10):
 
 if __name__ == "__main__":
     strategies = [
-        "center_dense", "edges", "hog_diff", "kmeans_rgb",
-        "motion_max", "random", "resnet_kmeans", "sharpest", "uniform"
+        "center_dense",
+        "edges",
+        "hog_diff",
+        "kmeans_rgb",
+        "motion_max",
+        "random",
+        "resnet_kmeans",
+        "sharpest",
+        "uniform",
     ]
     NUM_RUNS = 10
 

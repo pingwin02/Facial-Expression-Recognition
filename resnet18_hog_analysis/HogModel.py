@@ -1,20 +1,16 @@
-import os
 import cv2
 import json
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import os
 import seaborn as sns
-
 import tensorflow as tf
-from tensorflow.keras import layers, models, callbacks, optimizers
-
-from skimage.feature import hog
-
 import torch
 from facenet_pytorch import MTCNN
-
+from skimage.feature import hog
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix  # DODANO: confusion_matrix
+from tensorflow.keras import layers, models, callbacks, optimizers
 
 DATASET_DIR = "devemo"
 SEQ_LEN = 8
@@ -147,12 +143,11 @@ class HogModel:
 
         os.makedirs(output_dir, exist_ok=True)
         model_path = os.path.join(output_dir, model_filename)
-        checkpoint = callbacks.ModelCheckpoint(
-            model_path, monitor="val_loss", save_best_only=True, verbose=1
-        )
+        checkpoint = callbacks.ModelCheckpoint(model_path, monitor="val_loss", save_best_only=True, verbose=1)
 
         history = model.model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             validation_data=(X_val, y_val, val_weights),
             epochs=epochs,
             batch_size=32,
@@ -198,6 +193,7 @@ def extract_frames(video_path):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         from PIL import Image
+
         frame_pil = Image.fromarray(frame)
         face = mtcnn(frame_pil)
 
@@ -243,6 +239,7 @@ def load_dataset():
 
     return np.array(X), np.array(Y)
 
+
 def main():
     X_data, y_data = load_dataset()
 
@@ -252,9 +249,7 @@ def main():
 
     print(f"\nZebrano dane. Kształt X: {X_data.shape}, Kształt y: {y_data.shape}")
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_data, y_data, test_size=0.2, stratify=y_data, random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X_data, y_data, test_size=0.2, stratify=y_data, random_state=42)
     print(f"Zbiór treningowy: {len(X_train)} próbek. Zbiór testowy: {len(X_test)} próbek.")
 
     print("\n--- Rozpoczynanie treningu HogModel ---")
@@ -267,7 +262,7 @@ def main():
         y_val=y_test,
         output_dir=output_directory,
         model_filename="best_hog_model.keras",
-        epochs=100
+        epochs=100,
     )
 
     print("\n--- Rozpoczęto testowanie na zbiorze walidacyjnym ---")
@@ -284,19 +279,19 @@ def main():
     plt.figure(figsize=(12, 5))
 
     plt.subplot(1, 2, 1)
-    plt.plot(history['accuracy'], label='Train Accuracy')
-    plt.plot(history['val_accuracy'], label='Validation Accuracy')
-    plt.title('Model Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
+    plt.plot(history["accuracy"], label="Train Accuracy")
+    plt.plot(history["val_accuracy"], label="Validation Accuracy")
+    plt.title("Model Accuracy")
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
     plt.legend()
 
     plt.subplot(1, 2, 2)
-    plt.plot(history['loss'], label='Train Loss')
-    plt.plot(history['val_loss'], label='Validation Loss')
-    plt.title('Model Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
+    plt.plot(history["loss"], label="Train Loss")
+    plt.plot(history["val_loss"], label="Validation Loss")
+    plt.title("Model Loss")
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
     plt.legend()
 
     plt.tight_layout()
@@ -305,12 +300,17 @@ def main():
 
     cm = confusion_matrix(y_test, predictions)
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=['Negatywne (0)', 'Pozytywne/Neutralne (1)'],
-                yticklabels=['Negatywne (0)', 'Pozytywne/Neutralne (1)'])
-    plt.title('Confusion Matrix')
-    plt.xlabel('Predicted Labels')
-    plt.ylabel('True Labels')
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        xticklabels=["Negatywne (0)", "Pozytywne/Neutralne (1)"],
+        yticklabels=["Negatywne (0)", "Pozytywne/Neutralne (1)"],
+    )
+    plt.title("Confusion Matrix")
+    plt.xlabel("Predicted Labels")
+    plt.ylabel("True Labels")
     plt.tight_layout()
     plt.savefig(os.path.join(output_directory, "confusion_matrix.png"))
     plt.close()

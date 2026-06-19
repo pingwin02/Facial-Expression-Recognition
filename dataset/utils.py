@@ -1,6 +1,7 @@
 import csv
 import html as html_lib
 import json
+import numpy as np
 import os
 import re
 import shutil
@@ -10,8 +11,6 @@ import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 from http.cookiejar import CookieJar
-
-import numpy as np
 
 
 def split_data(df, id_col, seed=42, val_ratio=0.1, test_ratio=0.1, label_col="label"):
