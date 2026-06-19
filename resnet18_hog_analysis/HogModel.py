@@ -3,20 +3,16 @@ import cv2
 import json
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns  # DODANO: do rysowania macierzy konfuzji
+import seaborn as sns
 
-# TensorFlow / Keras (do uczenia klasyfikatora z HOG)
 import tensorflow as tf
 from tensorflow.keras import layers, models, callbacks, optimizers
 
-# Skimage (do ekstrakcji HOG)
 from skimage.feature import hog
 
-# PyTorch (zostawiamy WYŁĄCZNIE do działania MTCNN)
 import torch
 from facenet_pytorch import MTCNN
 
-# Scikit-Learn
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix  # DODANO: confusion_matrix
 
