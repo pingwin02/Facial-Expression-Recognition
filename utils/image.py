@@ -1,11 +1,10 @@
 import bz2
-import os
-import urllib.request
-
 import cv2
 import dlib
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+import urllib.request
 from matplotlib.lines import Line2D
 
 IMG_HEIGHT = 224

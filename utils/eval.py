@@ -1,7 +1,6 @@
 import json
-import os
-
 import numpy as np
+import os
 from sklearn.metrics import (
     balanced_accuracy_score,
     precision_recall_fscore_support,

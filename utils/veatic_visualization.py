@@ -1,9 +1,8 @@
 import csv
-import os
-
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 from matplotlib.lines import Line2D
 
 

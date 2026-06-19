@@ -1,9 +1,8 @@
 import json
-import os
-import textwrap
-
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+import textwrap
 
 
 def _summarize_frames_by_video(debugs):

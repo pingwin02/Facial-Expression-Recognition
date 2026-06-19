@@ -1,10 +1,9 @@
+import matplotlib.pyplot as plt
+import numpy as np
 import os
 import pickle
 import re
 import textwrap
-
-import matplotlib.pyplot as plt
-import numpy as np
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, ".."))
@@ -137,10 +136,7 @@ def print_cache_files(cache_files):
         print("No cache entries found in the cache directory.")
         return
 
-    rows = [
-        _cache_row_parts(path)
-        for path in cache_files
-    ]
+    rows = [_cache_row_parts(path) for path in cache_files]
     max_cols = max(len(row) for row in rows)
     widths = [0] * max_cols
     for row in rows:
@@ -582,9 +578,7 @@ def save_frames_preview_image(
     return output_path, len(selected_indices), len(view_indices)
 
 
-def show_frames_interactive(
-        frames, debugs, label_texts, title_prefix, start_index=0, max_frames=0
-):
+def show_frames_interactive(frames, debugs, label_texts, title_prefix, start_index=0, max_frames=0):
     total = int(len(frames))
     view_indices = _build_view_indices(total, start_index=start_index, max_frames=max_frames)
     cursor = {"pos": 0}
@@ -723,8 +717,9 @@ def main():
 
             if run_mode == "interactive":
                 print("Controls: Left/Right arrows or A/D, Space=next, Q=quit")
-                title_prefix = os.path.basename(
-                    pkl_path) if split == "all" else f"{os.path.basename(pkl_path)} ({split})"
+                title_prefix = (
+                    os.path.basename(pkl_path) if split == "all" else f"{os.path.basename(pkl_path)} ({split})"
+                )
                 show_frames_interactive(
                     frames=frames,
                     debugs=debugs,
